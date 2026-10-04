@@ -72,7 +72,7 @@ test('widget data', async ({ widgets }) => {
 });
 ```
 
-Use **one worker per simulator**. The fixture prepares once per worker and releases in teardown. To combine with your existing fixtures, extend your base test with `widgetFixtures` from `widgetctl/playwright`. Playwright's browser APIs do not themselves drive native widget UI; bring your native driver for rendering and interaction assertions. Other runners can use the same TypeScript API in setup/teardown hooks.
+Set `workers: 1` in `playwright.config.ts` for **one worker per simulator**. The fixture prepares once per worker, before test fixtures connect UI drivers, and releases in teardown. To combine with your existing fixtures, extend your base test with `widgetFixtures` from `widgetctl/playwright`. Playwright's browser APIs do not themselves drive native widget UI; bring your native driver for rendering and interaction assertions. Other runners can use the same TypeScript API in setup/teardown hooks.
 
 ## Support
 
