@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   runOperation,
   type BackendOptions,
@@ -74,25 +75,33 @@ function finiteJson(value: unknown, seen = new Set<object>()): void {
       "Configuration must contain finite, acyclic JSON values",
     );
   seen.add(value);
-  if (Array.isArray(value)) {
-    for (const item of value) finiteJson(item, seen);
-  } else {
-    if (Object.getPrototypeOf(value) !== Object.prototype)
-      throw new WidgetctlError("Configuration must contain plain JSON objects");
-    for (const key of Reflect.ownKeys(value)) {
-      if (
-        typeof key !== "string" ||
-        !Object.getOwnPropertyDescriptor(value, key)?.enumerable
-      )
-        throw new WidgetctlError(
-          "Configuration must contain enumerable JSON keys",
-        );
-      const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
-      if (!("value" in descriptor))
-        throw new WidgetctlError("Configuration cannot contain accessors");
-      finiteJson(descriptor.value, seen);
-    }
+  const array = Array.isArray(value);
+  if (
+    Object.getPrototypeOf(value) !==
+    (array ? Array.prototype : Object.prototype)
+  )
+    throw new WidgetctlError(
+      "Configuration must contain plain JSON objects and arrays",
+    );
+  for (const key of Reflect.ownKeys(value)) {
+    if (array && key === "length") continue;
+    if (
+      typeof key !== "string" ||
+      !Object.getOwnPropertyDescriptor(value, key)?.enumerable ||
+      (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length))
+    )
+      throw new WidgetctlError(
+        "Configuration must contain enumerable JSON keys",
+      );
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (!("value" in descriptor))
+      throw new WidgetctlError("Configuration cannot contain accessors");
+    finiteJson(descriptor.value, seen);
   }
+  if (array)
+    for (let index = 0; index < value.length; index++)
+      if (!Object.hasOwn(value, index))
+        throw new WidgetctlError("Configuration cannot contain sparse arrays");
   seen.delete(value);
 }
 function configuration(
@@ -208,11 +217,30 @@ export function createController(
     architecture: options.architecture,
     launchDomain: options.launchDomain,
   };
+  const mutatorContext = new AsyncLocalStorage<{ active: boolean }>();
   let queue: Promise<unknown> = Promise.resolve();
   const serialize = <T>(operation: () => Promise<T>): Promise<T> => {
+    if (mutatorContext.getStore()?.active)
+      return Promise.reject(
+        new WidgetctlError(
+          "Configuration mutators cannot call operations on the same controller",
+        ),
+      );
     const pending = queue.then(operation);
     queue = pending.catch(() => undefined);
     return pending;
+  };
+  const snapshotAndSerialize = <Input, Result>(
+    snapshot: () => Input,
+    operation: (input: Input) => Promise<Result>,
+  ): Promise<Result> => {
+    let input: Input;
+    try {
+      input = snapshot();
+    } catch (cause) {
+      return Promise.reject(cause);
+    }
+    return serialize(() => operation(input));
   };
   const run = async (
     mode: BackendOptions["mode"],
@@ -223,7 +251,10 @@ export function createController(
       result = await runOperationBackend({ ...settings, ...extra, mode });
     } catch (cause) {
       if (cause instanceof WidgetctlError) throw cause;
-      throw new WidgetctlError(`Widget operation ${mode} failed`, { cause });
+      throw new WidgetctlError(
+        `Widget operation ${mode} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        { cause },
+      );
     }
     try {
       options.onResult?.(result);
@@ -233,11 +264,18 @@ export function createController(
         cause,
       });
     }
-    if (result.status !== successful[mode])
+    if (result.status !== successful[mode]) {
+      const diagnosis =
+        typeof result.error === "string"
+          ? result.error
+          : typeof result.verification_error === "string"
+            ? result.verification_error
+            : undefined;
       throw new WidgetctlError(
-        `Widget operation ${mode} failed: ${result.status}`,
+        `Widget operation ${mode} failed: ${result.status}${diagnosis ? `: ${diagnosis}` : ""}`,
         { result },
       );
+    }
     return result;
   };
   const exportConfig = async (target: WidgetTarget) =>
@@ -253,7 +291,7 @@ export function createController(
       (
         await run("applyConfiguration", {
           ...target,
-          configuration: configuration(value, target),
+          configuration: value,
         })
       ).configuration,
       target,
@@ -264,52 +302,83 @@ export function createController(
     release: () => serialize(() => run("unload")),
     inspect: () => serialize(() => run("inspect")),
     exportConfiguration: (target) =>
-      serialize(() => exportConfig(validateTarget(target))),
+      snapshotAndSerialize(() => validateTarget(target), exportConfig),
     applyConfiguration: (target, value) =>
-      serialize(() => applyConfig(validateTarget(target), value)),
+      snapshotAndSerialize(
+        () => {
+          const selected = validateTarget(target);
+          return {
+            target: selected,
+            configuration: configuration(value, selected),
+          };
+        },
+        ({ target, configuration }) => applyConfig(target, configuration),
+      ),
     ensure: (input, ensureOptions = {}) =>
-      serialize(async () => {
-        const target = validateTarget(input);
-        const result = await run("ensure", {
-          ...target,
-          exclusive: ensureOptions.exclusive,
-          replace: ensureOptions.replace,
-          position: ensureOptions.position,
-        });
-        if (typeof result.iconIdentifier !== "string" || !result.iconIdentifier)
-          throw new WidgetctlError(
-            "Backend did not return an exact widget icon identifier",
-            { result },
-          );
-        const bound = Object.freeze({
-          ...target,
-          iconIdentifier: result.iconIdentifier,
-        });
-        return Object.freeze({
-          target: bound,
-          iconIdentifier: result.iconIdentifier,
-          reveal: () =>
-            serialize(() => run("ensure", { ...bound, position: "top" })),
-          parameters: () =>
-            serialize(
-              async () => (await exportConfig(bound)).intent.parameters,
-            ),
-          exportConfiguration: () => serialize(() => exportConfig(bound)),
-          applyConfiguration: (value: WidgetConfiguration) =>
-            serialize(() => applyConfig(bound, value)),
-          updateConfiguration: (
-            mutator: (
-              parameters: Record<string, JsonValue>,
-            ) => void | Promise<void>,
-          ) =>
-            serialize(async () => {
-              const current = await exportConfig(bound);
-              await mutator(current.intent.parameters);
-              return applyConfig(bound, current);
-            }),
-          remove: () => serialize(() => run("remove", bound)),
-        });
-      }),
+      snapshotAndSerialize(
+        () => ({
+          target: validateTarget(input),
+          ensureOptions: {
+            exclusive: ensureOptions.exclusive,
+            replace: ensureOptions.replace,
+            position: ensureOptions.position,
+          },
+        }),
+        async ({ target, ensureOptions }) => {
+          const result = await run("ensure", {
+            ...target,
+            exclusive: ensureOptions.exclusive,
+            replace: ensureOptions.replace,
+            position: ensureOptions.position,
+          });
+          if (
+            typeof result.iconIdentifier !== "string" ||
+            !result.iconIdentifier
+          )
+            throw new WidgetctlError(
+              "Backend did not return an exact widget icon identifier",
+              { result },
+            );
+          const bound = Object.freeze({
+            ...target,
+            iconIdentifier: result.iconIdentifier,
+          });
+          return Object.freeze({
+            target: bound,
+            iconIdentifier: result.iconIdentifier,
+            reveal: () =>
+              serialize(() => run("ensure", { ...bound, position: "top" })),
+            parameters: () =>
+              serialize(
+                async () => (await exportConfig(bound)).intent.parameters,
+              ),
+            exportConfiguration: () => serialize(() => exportConfig(bound)),
+            applyConfiguration: (value: WidgetConfiguration) =>
+              snapshotAndSerialize(
+                () => configuration(value, bound),
+                (value) => applyConfig(bound, value),
+              ),
+            updateConfiguration: (
+              mutator: (
+                parameters: Record<string, JsonValue>,
+              ) => void | Promise<void>,
+            ) =>
+              serialize(async () => {
+                const current = await exportConfig(bound);
+                const context = { active: true };
+                await mutatorContext.run(context, async () => {
+                  try {
+                    await mutator(current.intent.parameters);
+                  } finally {
+                    context.active = false;
+                  }
+                });
+                return applyConfig(bound, configuration(current, bound));
+              }),
+            remove: () => serialize(() => run("remove", bound)),
+          });
+        },
+      ),
   };
   return controller;
 }

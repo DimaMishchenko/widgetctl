@@ -147,7 +147,229 @@ test("backend throws retain cause and explicit UDID is mandatory", async () => {
   });
   await assert.rejects(
     controller.prepare(),
-    (error) => error instanceof WidgetctlError && error.cause === cause,
+    (error) =>
+      error instanceof WidgetctlError &&
+      error.cause === cause &&
+      /Native worker unavailable/.test(error.message),
   );
   assert.throws(() => createController({ udid: "" }), WidgetctlError);
+});
+
+test("queued operations snapshot targets, ensure options and configuration at invocation", async () => {
+  const { calls, runner } = mock();
+  let unblock!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    unblock = resolve;
+  });
+  const controller = createController({ udid: "DEVICE" }, async (options) => {
+    if (options.mode === "prepare") await blocked;
+    return runner(options);
+  });
+  const preparing = controller.prepare();
+  const selected = { ...target };
+  const options = {
+    exclusive: false,
+    replace: false,
+    position: "top" as const,
+  };
+  const ensuring = controller.ensure(selected, options);
+  const exporting = controller.exportConfiguration(selected);
+  const value = structuredClone(config);
+  const applying = controller.applyConfiguration(selected, value);
+  selected.extension = "other.widgets";
+  selected.kind = "Other";
+  options.exclusive = true;
+  options.replace = true;
+  value.intent.parameters.amount = 99;
+  unblock();
+  await preparing;
+  const handle = await ensuring;
+  await exporting;
+  await applying;
+  assert.deepEqual(handle.target, { ...target, iconIdentifier: "exact-icon" });
+  assert.ok(
+    calls
+      .slice(1)
+      .every(
+        (call) =>
+          call.extension === target.extension && call.kind === target.kind,
+      ),
+  );
+  assert.equal(calls[1].exclusive, false);
+  assert.equal(calls[1].replace, false);
+  assert.equal(calls[3].configuration!.intent.parameters.amount, 2);
+
+  const updated = structuredClone(config);
+  const pending = handle.applyConfiguration(updated);
+  updated.intent.parameters.amount = 123;
+  assert.equal((await pending).intent.parameters.amount, 2);
+});
+
+test("configuration rejects array accessors and non-JSON array properties without reading getters", async () => {
+  const { calls, runner } = mock();
+  const controller = createController({ udid: "DEVICE" }, runner);
+  let getterReads = 0;
+  const accessor = [1];
+  Object.defineProperty(accessor, "0", {
+    enumerable: true,
+    get() {
+      getterReads++;
+      return 1;
+    },
+  });
+  const extra = Object.assign([1], { metadata: "lost by JSON" });
+  const symbol = [1];
+  Object.defineProperty(symbol, Symbol("metadata"), { value: 1 });
+  const hidden = [1];
+  Object.defineProperty(hidden, "0", { enumerable: false });
+  class CustomArray extends Array<number> {}
+  const invalid = [
+    accessor,
+    extra,
+    symbol,
+    hidden,
+    new CustomArray(1),
+    Array(1),
+    [undefined],
+    [Infinity],
+  ];
+  for (const values of invalid) {
+    const value = structuredClone(config);
+    value.intent.parameters.values = values as any;
+    let pending!: Promise<WidgetConfiguration>;
+    assert.doesNotThrow(() => {
+      pending = controller.applyConfiguration(target, value);
+    });
+    await assert.rejects(pending, WidgetctlError);
+  }
+  assert.equal(getterReads, 0);
+  assert.equal(calls.length, 0);
+  const value = structuredClone(config);
+  const shared = { opaque: true };
+  value.intent.parameters.values = [
+    shared,
+    shared,
+    [],
+    [null, false, 3, "entity"],
+  ];
+  assert.deepEqual(
+    (await controller.applyConfiguration(target, value)).intent.parameters,
+    value.intent.parameters,
+  );
+});
+
+test("input validation rejects promises without breaking subsequent operations", async () => {
+  const { runner } = mock();
+  const controller = createController({ udid: "DEVICE" }, runner);
+  let pending!: Promise<unknown>;
+  assert.doesNotThrow(() => {
+    pending = controller.ensure({ ...target, kind: "" });
+  });
+  await assert.rejects(pending, WidgetctlError);
+  await controller.inspect();
+});
+
+test("structured operation failures include the backend diagnosis", async () => {
+  const result = {
+    status: "worker_rejected",
+    error: "Unsupported widget family",
+    timings: {},
+  };
+  const controller = createController({ udid: "DEVICE" }, async () => result);
+  await assert.rejects(
+    controller.prepare(),
+    (error) =>
+      error instanceof WidgetctlError &&
+      error.result === result &&
+      /Unsupported widget family/.test(error.message),
+  );
+});
+
+test(
+  "mutator reentrancy rejects without blocking external queued operations or release",
+  { timeout: 2000 },
+  async () => {
+    const { calls, runner } = mock();
+    const controller = createController({ udid: "DEVICE" }, runner);
+    const handle = await controller.ensure(target);
+    let started!: () => void;
+    let proceed!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const continuing = new Promise<void>((resolve) => {
+      proceed = resolve;
+    });
+    const update = handle.updateConfiguration(async () => {
+      started();
+      await continuing;
+      await controller.inspect();
+    });
+    const rejected = assert.rejects(
+      update,
+      (error) =>
+        error instanceof WidgetctlError &&
+        /mutators cannot call operations on the same controller/.test(
+          error.message,
+        ),
+    );
+    await entered;
+    const inspected = controller.inspect();
+    assert.deepEqual(
+      calls.map((call) => call.mode),
+      ["ensure", "exportConfiguration"],
+    );
+    proceed();
+    await rejected;
+    await inspected;
+    await controller.release();
+    assert.deepEqual(
+      calls.map((call) => call.mode),
+      ["ensure", "exportConfiguration", "inspect", "unload"],
+    );
+  },
+);
+
+test("mutator descendants may call the controller after their mutator settles", async () => {
+  const { calls, runner } = mock();
+  const controller = createController({ udid: "DEVICE" }, runner);
+  const handle = await controller.ensure(target);
+  let proceed!: () => void;
+  let descendant!: Promise<BackendResult>;
+  const continuing = new Promise<void>((resolve) => {
+    proceed = resolve;
+  });
+  await handle.updateConfiguration((parameters) => {
+    parameters.amount = 8;
+    descendant = continuing.then(() => controller.inspect());
+  });
+  proceed();
+  await descendant;
+  await controller.release();
+  assert.deepEqual(
+    calls.map((call) => call.mode),
+    [
+      "ensure",
+      "exportConfiguration",
+      "applyConfiguration",
+      "inspect",
+      "unload",
+    ],
+  );
+});
+
+test("persisted outcome failures expose verification_error when error is absent", async () => {
+  const result = {
+    status: "position_unverified",
+    verification_error: "Widget is not at index zero of its original Home page",
+    timings: {},
+  };
+  const controller = createController({ udid: "DEVICE" }, async () => result);
+  await assert.rejects(
+    controller.prepare(),
+    (error) =>
+      error instanceof WidgetctlError &&
+      error.result === result &&
+      error.message.includes(result.verification_error),
+  );
 });

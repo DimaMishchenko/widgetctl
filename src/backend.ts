@@ -27,6 +27,7 @@ import {
   withLock,
   atomicJson,
   readJson,
+  assertLockOwnership,
 } from "./backend-runtime.js";
 export interface BackendOptions {
   udid: string;
@@ -72,6 +73,19 @@ export function validateOptions(o: BackendOptions): string {
     throw Error("Invalid operation mode");
   if (o.mode !== "ensure" && (o.exclusive || o.replace || o.position))
     throw Error("Exclusive, replace and position apply only to ensure");
+  for (const key of ["exclusive", "replace"] as const)
+    if (o[key] !== undefined && typeof o[key] !== "boolean")
+      throw Error(`${key} must be a boolean`);
+  for (const key of [
+    "extension",
+    "kind",
+    "container",
+    "iconIdentifier",
+    "stateDirectory",
+    "launchDomain",
+  ] as const)
+    if (o[key] !== undefined && (typeof o[key] !== "string" || !o[key]!.trim()))
+      throw Error(`${key} must be a nonempty string`);
   if (o.position && o.position !== "top") throw Error("Position must be top");
   if (o.iconIdentifier && !uuid(o.iconIdentifier))
     throw Error("iconIdentifier must be a UUID");
@@ -104,6 +118,7 @@ export function createBackend(
 ): (o: BackendOptions) => Promise<BackendResult> {
   return async (o) => {
     const out: BackendResult = { status: "failed", timings: {} };
+    const started = r.now();
     try {
       const udid = validateOptions(o);
       Object.assign(out, { udid, mode: o.mode });
@@ -135,15 +150,19 @@ export function createBackend(
           throw Error(
             "Only one explicitly booted iOS simulator runtime is supported",
           );
-        const sim = (...args: string[]) =>
-          r.command(["xcrun", "simctl", "spawn", udid, ...args]);
-        const domain =
-          o.launchDomain ??
-          `user/${(await sim("launchctl", "manageruid")).trim()}`;
-        if (!/^user\/\d+$/.test(domain))
-          throw Error("Simulator did not report a numeric launch-user UID");
-        const target = `${domain}/com.apple.SpringBoard`;
-        out.springboard_target = target;
+        const sim = (...args: string[]) => {
+          assertLockOwnership();
+          return r.command(["xcrun", "simctl", "spawn", udid, ...args]);
+        };
+        const resolveTarget = async () => {
+          const domain =
+            o.launchDomain ??
+            `user/${(await sim("launchctl", "manageruid")).trim()}`;
+          if (!/^user\/\d+$/.test(domain))
+            throw Error("Simulator did not report a numeric launch-user UID");
+          return `${domain}/com.apple.SpringBoard`;
+        };
+        let target: string;
         const pid = async () => {
           const text = await sim("launchctl", "print", target);
           const match = /^\s*pid\s*=\s*(\d+)\s*$/m.exec(text);
@@ -172,8 +191,14 @@ export function createBackend(
             "home/mobile/Library/SpringBoard/IconState.plist",
           ),
         ];
-        const finish = (status: string, extra: Dict = {}) =>
-          Object.assign(out, { status }, extra);
+        const finish = (status: string, extra: Dict = {}) => {
+          assertLockOwnership();
+          return Object.assign(out, { status }, extra);
+        };
+        const removeSessionFile = async (name: string) => {
+          assertLockOwnership();
+          await fs.rm(path.join(session, name), { force: true });
+        };
         const wait = async (
           check: (after: Dict) => string | null,
           ms = 5000,
@@ -185,6 +210,7 @@ export function createBackend(
             after: Dict | null = null,
             p: string | null = null;
           do {
+            assertLockOwnership();
             try {
               [after, p] = await r.loadIconstate(paths);
               error = check(after);
@@ -198,7 +224,9 @@ export function createBackend(
           return [false, error, after, p, (r.now() - started) / 1000];
         };
         if (o.mode === "unload") {
-          await fs.rm(path.join(session, "command.json"), { force: true });
+          target = await resolveTarget();
+          out.springboard_target = target;
+          await removeSessionFile("command.json");
           const before = await r.heartbeat(session);
           const previous = await pid();
           const injection = await readJson(injectionPath);
@@ -212,7 +240,7 @@ export function createBackend(
             Number.isInteger(injection.pid) &&
             injection.pid === previous;
           if (!pending && !active && (!before || before.pid !== previous)) {
-            await fs.rm(injectionPath, { force: true });
+            await removeSessionFile("injection.json");
             return finish("unloaded", {
               no_op: true,
               springboard_pid: previous,
@@ -252,8 +280,8 @@ export function createBackend(
           out.timings.unload_observation_seconds =
             (r.now() - observation) / 1000;
           if (!unexpected) {
-            await fs.rm(injectionPath, { force: true });
-            await fs.rm(path.join(session, "heartbeat.json"), { force: true });
+            await removeSessionFile("injection.json");
+            await removeSessionFile("heartbeat.json");
           }
           return finish(unexpected ? "worker_still_live" : "unloaded", {
             previous_heartbeat: before,
@@ -261,7 +289,7 @@ export function createBackend(
             springboard_pid: next,
           });
         }
-        await fs.rm(path.join(session, "command.json"), { force: true });
+        await removeSessionFile("command.json");
         let existing: Dict = { iconLists: [] },
           existingMatches: Dict[] = [],
           ids: Target | null = null;
@@ -276,7 +304,10 @@ export function createBackend(
           out.iconstate_before = existingMatches;
           if (o.iconIdentifier) {
             existingMatches = existingMatches.filter(
-              (v) => v.displayIdentifier === o.iconIdentifier,
+              (v) =>
+                typeof v.displayIdentifier === "string" &&
+                v.displayIdentifier.toUpperCase() ===
+                  o.iconIdentifier!.toUpperCase(),
             );
             if (existingMatches.length !== 1)
               throw Error(
@@ -300,6 +331,14 @@ export function createBackend(
             ? persistedTarget(existingMatches[0]!)
             : null;
           if (ids) validateHomeTarget(existing, ids);
+          if (
+            ids &&
+            o.container &&
+            existingMatches[0]!.containerBundleIdentifier !== o.container
+          )
+            throw Error(
+              "Requested container does not match the persisted widget",
+            );
         }
         const originalIds = ids;
         const scoped = o.exclusive
@@ -332,13 +371,19 @@ export function createBackend(
           if (o.mode === "applyConfiguration")
             validateConfiguration(o.configuration, configBindings);
         }
-        const [worker, identity] = await r.compileWorker(
-          state,
-          udid,
-          listing,
-          o.architecture,
-          r.command,
-        );
+        const preparing = r.now();
+        const preparation = await Promise.allSettled([
+          r.compileWorker(state, udid, listing, o.architecture, r.command),
+          resolveTarget(),
+        ]);
+        for (const step of preparation)
+          if (step.status === "rejected") throw step.reason;
+        const [worker, identity] = (
+          preparation[0] as PromiseFulfilledResult<[string, string]>
+        ).value;
+        target = (preparation[1] as PromiseFulfilledResult<string>).value;
+        out.timings.preparation_seconds = (r.now() - preparing) / 1000;
+        out.springboard_target = target;
         out.worker_path = worker;
         let live = await r.heartbeat(session);
         if (
@@ -351,7 +396,7 @@ export function createBackend(
         if (live && (await pid()) !== live.pid) live = null;
         if (!live) {
           const started = r.now();
-          await fs.rm(path.join(session, "heartbeat.json"), { force: true });
+          await removeSessionFile("heartbeat.json");
           await atomicJson(injectionPath, {
             udid,
             target,
@@ -634,6 +679,14 @@ export function createBackend(
               error ??
               "Multiple IconState entries match the requested widget and size",
           });
+        if (
+          o.container &&
+          matches[0]!.containerBundleIdentifier !== o.container
+        )
+          return finish("placement_persistence_unverified", {
+            verification_error:
+              "Placed widget container does not match the requested container",
+          });
         let current = placed!;
         if (ids && !equal(persistedTarget(matches[0]!), ids))
           return finish("reveal_persistence_unverified", {
@@ -748,6 +801,8 @@ export function createBackend(
       out.status = "failed";
       out.error = e instanceof Error ? e.message : String(e);
       return out;
+    } finally {
+      out.timings.total_seconds = (r.now() - started) / 1000;
     }
   };
 }

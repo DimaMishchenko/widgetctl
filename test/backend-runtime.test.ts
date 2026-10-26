@@ -628,3 +628,80 @@ test("worker transport ignores stale nonce and verifies exact PID", async () => 
     }
   }
 });
+test("supplied container is checked before existing widget mutations", async () => {
+  for (const mode of ["ensure", "remove"] as const) {
+    const f = await fixture({ iconLists: [[w]] });
+    try {
+      const result = await f.run({ ...tuple, mode, container: "org.wrong" });
+      assert.equal(result.status, "failed");
+      assert.match(result.error, /container/);
+      assert.equal(f.payloads.length, 0);
+    } finally {
+      await f.dispose();
+    }
+  }
+});
+test("exact widget UUID selection accepts equivalent letter case", async () => {
+  const widget = {
+    ...w,
+    displayIdentifier: "ABCDEFAB-2222-2222-2222-222222222222",
+  };
+  const f = await fixture({ iconLists: [[widget]] });
+  try {
+    const result = await f.run({
+      ...tuple,
+      mode: "ensure",
+      iconIdentifier: widget.displayIdentifier.toLowerCase(),
+    });
+    assert.equal(result.status, "verified");
+    assert.equal(f.payloads[0]!.iconIdentifier, widget.displayIdentifier);
+  } finally {
+    await f.dispose();
+  }
+});
+test("JavaScript callers cannot enable destructive flags with truthy non-booleans", async () => {
+  const f = await fixture({ iconLists: [[w]] });
+  try {
+    for (const key of ["exclusive", "replace"]) {
+      const result = await f.run({
+        ...tuple,
+        mode: "ensure",
+        [key]: "false",
+      } as any);
+      assert.equal(result.status, "failed");
+      assert.match(result.error, /must be a boolean/);
+    }
+    for (const key of [
+      "container",
+      "iconIdentifier",
+      "stateDirectory",
+      "launchDomain",
+    ]) {
+      const result = await f.run({ ...tuple, mode: "ensure", [key]: "" });
+      assert.equal(result.status, "failed");
+      assert.match(result.error, /nonempty string/);
+    }
+    assert.equal(f.commands.length, 0);
+    assert.equal(f.payloads.length, 0);
+  } finally {
+    await f.dispose();
+  }
+});
+test("placement does not verify a widget from a different app container", async () => {
+  const f = await fixture();
+  try {
+    f.r.requestWorker = async () => {
+      f.setState({ iconLists: [[w]] });
+      return [{ status: "submitted" }, 0];
+    };
+    const result = await f.run({
+      ...tuple,
+      mode: "ensure",
+      container: "org.wrong",
+    });
+    assert.equal(result.status, "placement_persistence_unverified");
+    assert.match(result.verification_error, /container/);
+  } finally {
+    await f.dispose();
+  }
+});

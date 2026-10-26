@@ -42,6 +42,8 @@ try {
 
 Configuration parameters are the widget's full canonical AppIntent dictionary. Their shape is app-specific; preserve entity metadata and unknown fields. Exported envelopes bind to one current device/widget instance. Re-export after native edits; use the returned envelope after applying a change.
 
+Operations capture inputs when called. Configuration accepts plain, finite JSON values. A configuration mutator can be async, but calls to the same controller from that mutator reject to prevent a queue deadlock.
+
 ## CLI
 
 ```sh

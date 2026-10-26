@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomUUID, createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { AsyncLocalStorage } from "node:async_hooks";
 import plist from "plist";
 import bplist from "bplist-parser";
 import {
@@ -14,15 +15,24 @@ import {
   validateResponse,
 } from "./backend-model.js";
 const execute = promisify(execFile);
+type LockContext = { lost: Error | null };
+const lockContexts = new AsyncLocalStorage<LockContext[]>();
+export function assertLockOwnership(): void {
+  for (const context of lockContexts.getStore() ?? [])
+    if (context.lost) throw context.lost;
+}
 export async function command(
   args: string[],
   timeout = 15000,
 ): Promise<string> {
+  assertLockOwnership();
   const { stdout } = await execute(args[0]!, args.slice(1), {
     timeout,
+    killSignal: "SIGKILL",
     maxBuffer: 16 * 1024 * 1024,
     encoding: "utf8",
   });
+  assertLockOwnership();
   return stdout;
 }
 export const sleep = (ms: number) =>
@@ -35,12 +45,14 @@ export async function readJson(p: string): Promise<any> {
   }
 }
 export async function atomicJson(p: string, v: unknown): Promise<void> {
+  assertLockOwnership();
   const temp = `${p}.${randomUUID()}.tmp`;
   try {
     await fs.writeFile(temp, JSON.stringify(v) + "\n", {
       mode: 0o600,
       flag: "wx",
     });
+    assertLockOwnership();
     await fs.rename(temp, p);
   } finally {
     await fs.rm(temp, { force: true });
@@ -90,6 +102,7 @@ export async function withLock<T>(
   p: string,
   action: () => Promise<T>,
 ): Promise<T> {
+  assertLockOwnership();
   try {
     const file = await fs.open(p, "ax", 0o600);
     await file.close();
@@ -119,13 +132,24 @@ export async function withLock<T>(
     ],
     { stdio: ["pipe", "pipe", "pipe"] },
   );
+  const context: LockContext = { lost: null };
+  let releasing = false;
   let stderr = "";
   holder.stderr.on("data", (chunk) => {
     stderr += chunk.toString();
   });
   const exited = new Promise<number | null>((resolve, reject) => {
-    holder.once("error", reject);
-    holder.once("exit", resolve);
+    holder.once("error", (error) => {
+      context.lost = Error(`Lock holder failed: ${error.message}`);
+      reject(error);
+    });
+    holder.once("exit", (code, signal) => {
+      if (!releasing)
+        context.lost = Error(
+          `Lock ownership lost (${signal ?? code}); an in-flight operation may have completed`,
+        );
+      resolve(code);
+    });
   });
   await Promise.race([
     new Promise<void>((resolve, reject) => {
@@ -141,8 +165,17 @@ export async function withLock<T>(
     }),
   ]);
   try {
-    return await action();
+    return await lockContexts.run(
+      [...(lockContexts.getStore() ?? []), context],
+      async () => {
+        assertLockOwnership();
+        const result = await action();
+        assertLockOwnership();
+        return result;
+      },
+    );
   } finally {
+    releasing = true;
     holder.stdin.end();
     await exited;
   }
@@ -184,22 +217,37 @@ export async function compileWorker(
   architecture?: string,
   run = command,
 ): Promise<[string, string]> {
+  assertLockOwnership();
+  const discoveries = await Promise.allSettled([
+    run(["xcrun", "simctl", "list", "runtimes", "--json"]),
+    run(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"]),
+    (async () => {
+      const compiler = (
+        await run(["xcrun", "--sdk", "iphonesimulator", "--find", "clang"])
+      ).trim();
+      return { compiler, version: await run([compiler, "--version"]) };
+    })(),
+    run(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-version"]),
+  ]);
+  assertLockOwnership();
+  for (const result of discoveries)
+    if (result.status === "rejected") throw result.reason;
+  const [runtimeResult, sdkResult, compilerResult, sdkVersionResult] =
+    discoveries as [
+      PromiseFulfilledResult<string>,
+      PromiseFulfilledResult<string>,
+      PromiseFulfilledResult<{ compiler: string; version: string }>,
+      PromiseFulfilledResult<string>,
+    ];
   const [target, runtime] = targetIdentity(
     listing,
-    JSON.parse(await run(["xcrun", "simctl", "list", "runtimes", "--json"])),
+    JSON.parse(runtimeResult.value),
     udid,
     architecture ?? (os.arch() === "x64" ? "x86_64" : os.arch()),
   );
-  const sdk = (
-    await run(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"])
-  ).trim();
-  const compiler = (
-    await run(["xcrun", "--sdk", "iphonesimulator", "--find", "clang"])
-  ).trim();
-  const version = await run([compiler, "--version"]);
-  const sdkVersion = (
-    await run(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-version"])
-  ).trim();
+  const sdk = sdkResult.value.trim();
+  const { compiler, version } = compilerResult.value;
+  const sdkVersion = sdkVersionResult.value.trim();
   const source = fileURLToPath(new URL("../native/worker.m", import.meta.url));
   const identity = createHash("sha256")
     .update(await fs.readFile(source))
@@ -257,6 +305,7 @@ export async function compileWorker(
         ],
         60000,
       );
+      assertLockOwnership();
       await fs.rename(temp, worker);
     } finally {
       await fs.rm(temp, { force: true });
@@ -270,14 +319,26 @@ export async function requestWorker(
   payload: Dict,
   expected?: any,
 ): Promise<[Dict, number]> {
+  assertLockOwnership();
   const nonce = randomUUID();
   const started = performance.now();
   await fs.rm(path.join(session, "command.json"), { force: true });
+  assertLockOwnership();
   await fs.rm(path.join(session, "response.json"), { force: true });
-  await atomicJson(path.join(session, "command.json"), { ...payload, nonce });
+  await atomicJson(path.join(session, "command.json"), {
+    ...payload,
+    nonce,
+    worker: {
+      pid: live.pid,
+      identity: live.identity,
+      udid: path.basename(session),
+    },
+  });
   try {
     while (performance.now() - started < 30000) {
+      assertLockOwnership();
       const v = await readJson(path.join(session, "response.json"));
+      assertLockOwnership();
       if (object(v) && v.nonce === nonce)
         return [
           validateResponse(v, nonce, live.pid, expected),
@@ -296,7 +357,11 @@ export async function requestWorker(
     }
     throw Error("No response matching the command nonce within 30 seconds");
   } finally {
-    await fs.rm(path.join(session, "command.json"), { force: true });
+    const pending = await readJson(path.join(session, "command.json"));
+    if (pending?.nonce === nonce) {
+      assertLockOwnership();
+      await fs.rm(path.join(session, "command.json"), { force: true });
+    }
   }
 }
 export const runtime: Runtime = {

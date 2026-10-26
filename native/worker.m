@@ -5,8 +5,11 @@
 
 static id objectMessage(id receiver, const char *selectorName) {
     SEL selector = sel_registerName(selectorName);
-    if (![receiver respondsToSelector:selector]) {
-        [NSException raise:@"UnavailableSelector" format:@"%@ does not implement %s", receiver, selectorName];
+    Method method = class_getInstanceMethod(object_getClass(receiver), selector);
+    char resultType[16] = {0};
+    if (method) method_getReturnType(method, resultType, sizeof(resultType));
+    if (!method || method_getNumberOfArguments(method) != 2 || resultType[0] != '@') {
+        [NSException raise:@"UnavailableABI" format:@"%@ does not implement %s as an object getter", receiver, selectorName];
     }
     return ((id (*)(id, SEL))objc_msgSend)(receiver, selector);
 }
@@ -29,7 +32,7 @@ static NSString *requiredString(NSDictionary *command, NSString *key) {
 
 static SEL requireMethod(id receiver, const char *name, const char *encoding) {
     SEL selector = sel_registerName(name);
-    Method method = class_getInstanceMethod([receiver class], selector);
+    Method method = class_getInstanceMethod(object_getClass(receiver), selector);
     if (!method || strcmp(method_getTypeEncoding(method), encoding) != 0) {
         [NSException raise:@"UnavailableABI" format:@"%@ does not implement %s with expected ABI %s", receiver, name, encoding];
     }
@@ -143,31 +146,26 @@ static id descriptorForWidget(id manager, NSDictionary *command, NSMutableDictio
     if (matchingDescriptors > 1) {
         [NSException raise:@"DuplicateDescriptors" format:@"Multiple installed descriptors for %@ / %@", extension, kind];
     }
-    if (!descriptor && command[@"container"]) {
+    if (command[@"container"]) {
         NSString *container = requiredString(command, @"container");
-        SEL selector = sel_registerName("sbh_descriptorWithKind:extensionBundleIdentifier:containerBundleIdentifier:");
-        if (![provider respondsToSelector:selector]) {
-            [NSException raise:@"UnavailableSelector" format:@"Widget provider lacks container descriptor lookup"];
-        }
+        SEL selector = requireMethod(provider, "sbh_descriptorWithKind:extensionBundleIdentifier:containerBundleIdentifier:", "@40@0:8@16@24@32");
         descriptor = ((id (*)(id, SEL, id, id, id))objc_msgSend)(provider, selector, kind, extension, container);
     }
     if (!descriptor) {
-        [NSException raise:@"MissingDescriptor" format:@"No installed descriptor for %@ / %@", extension, kind];
+        [NSException raise:@"MissingDescriptor" format:@"No installed descriptor for %@ / %@ with the requested container. Launch the containing app once and retry", extension, kind];
     }
-    if (![objectMessage(descriptor, "kind") isEqual:kind]) {
-        [NSException raise:@"DescriptorMismatch" format:@"Installed descriptor does not match kind %@", kind];
+    if (![objectMessage(descriptor, "kind") isEqual:kind] ||
+        ![objectMessage(descriptor, "extensionBundleIdentifier") isEqual:extension] ||
+        (command[@"container"] && ![objectMessage(descriptor, "containerBundleIdentifier") isEqual:command[@"container"]])) {
+        [NSException raise:@"DescriptorMismatch" format:@"Installed descriptor does not match the requested kind, extension and container"];
     }
-    SEL supportedSelector = sel_registerName("supportedFamilies");
-    if (![descriptor respondsToSelector:supportedSelector]) {
-        [NSException raise:@"UnavailableSelector" format:@"Descriptor lacks supportedFamilies"];
-    }
+    SEL supportedSelector = requireMethod(descriptor, "supportedFamilies", "Q16@0:8");
     unsigned long supportedFamilies = ((unsigned long (*)(id, SEL))objc_msgSend)(descriptor, supportedSelector);
     if (!(supportedFamilies & (1UL << sizeClass.unsignedLongValue))) {
         [NSException raise:@"UnsupportedFamily" format:@"%@ does not support %@ (mask %lu)", kind, size, supportedFamilies];
     }
-    if (![manager respondsToSelector:sel_registerName("_ensureWidgetIsVisibleForDebuggingWithDescriptor:sizeClass:")]) {
-        [NSException raise:@"UnavailableSelector" format:@"Widget manager lacks ensure placement selector"];
-    }
+    requireMethod(manager, "_ensureWidgetIsVisibleForDebuggingWithDescriptor:sizeClass:", "v32@0:8@16q24");
+    requireMethod(manager, "revealIcon:animated:completionHandler:", "v36@0:8@16B24@?28");
     response[@"descriptor"] = [descriptor description];
     return descriptor;
 }
@@ -198,6 +196,7 @@ static void validateExistingWidgets(NSDictionary *command, NSMutableDictionary *
     }
     NSMutableDictionary *desiredDetails = [desired mutableCopy];
     descriptorForWidget(manager, desired, desiredDetails);
+    requireMethod(manager, "removeIcon:options:undoActionName:completion:", "v48@0:8@16Q24@32@?40");
     response[@"desired"] = desiredDetails;
     NSMutableArray *validated = NSMutableArray.array;
     for (id target in targets) {
@@ -441,7 +440,7 @@ static void inspectRuntime(NSDictionary *command, NSMutableDictionary *response)
     if (modelRoot) rootFolders[@"iconModel.rootFolder"] = inspectObject(modelRoot);
     inspection[@"rootFolders"] = rootFolders;
     NSMutableDictionary *classes = NSMutableDictionary.dictionary;
-    for (NSString *name in @[@"SBIconController", @"SBHIconManager", @"SBIconModel", @"SBWidgetIcon", @"SBHWidgetIcon", @"SBIconListModel", @"SBIconListView", @"SBRootFolder", @"SBFolder", @"CHSIntentReference"]) {
+    for (NSString *name in @[@"SBIconController", @"SBHIconManager", @"SBIconModel", @"SBWidgetIcon", @"SBHWidgetIcon", @"SBIconListModel", @"SBIconListView", @"SBRootFolder", @"SBFolder", @"CHSIntentReference", @"CHSWidgetDescriptor"]) {
         Class inspectedClass = NSClassFromString(name);
         if (inspectedClass) classes[name] = relevantMethods(inspectedClass, YES);
     }
@@ -492,9 +491,16 @@ static void tick(NSString *directory, NSString *udid, NSString *identity) {
         } @catch (NSException *exception) {
             ready = NO;
         }
-        saveJSON(@{@"pid": @(getpid()), @"timestamp": @([NSDate.date timeIntervalSince1970]),
-                   @"udid": udid, @"identity": identity, @"protocol": @1, @"ready": @(ready)},
-                 [directory stringByAppendingPathComponent:@"heartbeat.json"]);
+        static CFAbsoluteTime lastHeartbeat = 0;
+        static BOOL lastReady = NO;
+        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+        if (now - lastHeartbeat >= 1 || ready != lastReady) {
+            saveJSON(@{@"pid": @(getpid()), @"timestamp": @([NSDate.date timeIntervalSince1970]),
+                       @"udid": udid, @"identity": identity, @"protocol": @1, @"ready": @(ready)},
+                     [directory stringByAppendingPathComponent:@"heartbeat.json"]);
+            lastHeartbeat = now;
+            lastReady = ready;
+        }
         NSData *data = [NSData dataWithContentsOfFile:[directory stringByAppendingPathComponent:@"command.json"]];
         if (!data || !ready) return;
         id command = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
@@ -506,6 +512,11 @@ static void tick(NSString *directory, NSString *udid, NSString *identity) {
         double started = CFAbsoluteTimeGetCurrent();
         NSMutableDictionary *response = [@{@"nonce": nonce, @"pid": @(getpid()), @"status": @"error"} mutableCopy];
         @try {
+            id worker = command[@"worker"];
+            if (![worker isKindOfClass:NSDictionary.class] || ![worker[@"pid"] isEqual:@(getpid())] ||
+                ![worker[@"identity"] isEqual:identity] || ![worker[@"udid"] isEqual:udid]) {
+                [NSException raise:@"WorkerGenerationMismatch" format:@"Command does not match this worker PID, identity and simulator"];
+            }
             if ([command[@"mode"] isEqual:@"exportConfiguration"] || [command[@"mode"] isEqual:@"applyConfiguration"]) {
                 exportConfiguration(command, response);
             } else if ([requiredString(command, @"mode") isEqualToString:@"validate"]) {
