@@ -10,7 +10,7 @@ Use macOS, Node 22.14+, full Xcode, and an installed widget app. Launch the app 
 npx --no-install widgetctl devices --json
 ```
 
-Interactive mode shows the runtime, state and UUID of every available iOS simulator. Select your own device explicitly. A shutdown device boots only after confirmation; preparation asks for ownership and UI restart consent. Decline or press Ctrl-C to cancel.
+Interactive mode shows simulator names, iOS versions and running state. Select a simulator reserved for your session. One confirmation covers booting it if needed and briefly restarting its Home Screen for the helper. Decline to return or press Ctrl-C to exit. Duplicate names gain a distinguishing suffix; routine menus omit UUIDs.
 
 Scripts must pass an already booted UUID using `--device`. To boot one yourself:
 
@@ -28,11 +28,30 @@ Skip `boot` if already booted. Reserve one simulator per worker. Locks serialize
 npx --no-install widgetctl
 ```
 
-Choose Add/reveal, Edit, Remove, Export, or Apply from file. Search app and widget lists by typing. Add selects only installed catalog descriptors and their supported sizes. Back returns from sizes to widget kinds and from kinds to apps. Existing-widget actions show the exact icon UUID, kind, size, page and item position.
+The main menu offers **Add widget**, **Edit widget**, **Remove widget**, **More**, **Change simulator** and **Exit**. Under **More**, choose **Browse widgets**, **Installed widgets**, **Widget details**, **Import configuration**, **Export configuration** or **Diagnostics**.
 
-The editor keeps a draft until you choose Review and save, inspect the parameter diff, and confirm. Declining save returns to the draft; discard leaves the widget unchanged. Boolean, text and numeric fields have typed prompts. Optional fields also offer explicit null or removal; the draft and diff preserve their different meanings. Accepting an existing multiline value preserves it exactly. Enum and entity choices use full JSON values; entity lists can select several choices. Unsupported fields are read only and show a reason. When a runtime cannot enumerate choices, widgetctl explains the limit and offers an explicit JSON editor. Native choices come from the installed app’s query service; searches also receive the staged draft, so dependent choices follow earlier edits.
+Add walks through installed apps, widget kinds and supported sizes. A step with only one choice is skipped. Use arrows for short lists; lists longer than ten entries let you type to search. Back returns to the preceding choice. Existing widgets appear by app, widget name and size. Duplicates show their Home Screen location and, when needed, a short distinguishing suffix. **Widget details** exposes the exact identifiers for troubleshooting or scripts.
 
-Guided mode returns to its menu after each action, retains the selected simulator and prepares the helper once when first needed. Cancelling a draft returns to the menu. Change simulator releases the previous helper before selecting another; Exit and Ctrl-C release it. Failed mutations release and require fresh preparation before another write. Explicit CLI commands prepare and release automatically, including failed preparation. `devices` and `list` read existing state without injecting a helper or restarting the Home UI. Preparation and release may restart the selected simulator's Home UI. Widgets remain installed. Connect drivers after preparation and close them before release. For several operations under one driver connection, use the TypeScript API or Playwright fixture.
+The editor stages changes and shows them beside each field:
+
+```text
+Edit widget configuration
+  City: Prague → London
+  Show forecast: On
+  Advanced…
+  Back
+❯ Save changes · 1
+```
+
+**Save changes · N** applies the displayed draft immediately. **Back** asks before discarding unsaved changes. Boolean, text and numeric fields use typed prompts. Advertised enum and entity choices retain their complete values; entity lists support multiple selections. Native choices come from the installed app’s query service and receive the staged draft, so dependent choices follow earlier edits. Accepting an existing multiline value preserves it exactly.
+
+**Advanced…** contains raw JSON editing and, for optional fields, explicit null and parameter removal. Null and an absent parameter remain distinct. Keep entity metadata when editing JSON. Unsupported fields stay read only with a reason; unavailable choice discovery explains the limit and offers Advanced where safe.
+
+Guided mode returns to the menu after each action and keeps the selected simulator and helper ready. After a recoverable failure, the helper may need preparation again; session consent remains valid for the selected simulator. **Change simulator** releases the previous helper and starts a new selection. **Exit** and Ctrl-C release it. Widgets remain installed.
+
+Set `NO_COLOR=1` to disable color. Use `WIDGETCTL_NO_EMOJI=1` for plain symbols; `TERM=dumb` also selects this fallback. Narrow terminals shorten labels to fit. Recoverable errors show a short message and next step; **More → Last error details** retains the complete message and recovery guidance.
+
+Explicit CLI commands prepare and release automatically, including failed preparation. `devices` and `list`, plus guided **Widget details**, read existing state without injecting a helper. Preparation and release may restart the selected simulator's Home Screen. Connect drivers after preparation and close them before release. For several operations under one driver connection, use the TypeScript API or Playwright fixture.
 
 ## Scripts and agents
 

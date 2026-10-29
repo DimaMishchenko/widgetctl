@@ -59,11 +59,13 @@ function prompts(
     select: async (_message, choices) => {
       const selected = selections.shift();
       if (selected === "$save")
-        return choices.find((choice) => choice.name === "Review and save")!
-          .value;
+        return choices.find((choice) =>
+          choice.name.startsWith("Save changes ·"),
+        )!.value;
+      if (selected === "$advanced")
+        return choices.find((choice) => choice.name === "Advanced…")!.value;
       if (selected === "$back")
-        return choices.find((choice) => choice.name === "Discard and go back")!
-          .value;
+        return choices.find((choice) => choice.name === "Back")!.value;
       return selected as never;
     },
     confirm: async () => confirmations.shift()!,
@@ -71,7 +73,7 @@ function prompts(
     editor: async () => inputs.shift()!,
   };
 }
-test("editor stages edits, preserves full entity metadata and confirms a diff", async () => {
+test("editor stages edits and preserves full entity metadata on direct save", async () => {
   let output = "";
   const result = await editConfiguration(
     original,
@@ -97,18 +99,21 @@ test("editor stages edits, preserves full entity metadata and confirms a diff", 
     identifier: "USD",
     metadata: { title: "Dollar" },
   });
-  assert.match(output, /currency:.*USD.*EUR/);
+  assert.equal(output, "");
 });
-test("discard and declined save never return a writeable draft", async () => {
+test("dirty Back asks before discarding and declined discard keeps the draft", async () => {
+  const questions = prompts(["showCode", "$back", "$save"], [true, false]);
+  const result = await editConfiguration(original, questions, () => {});
+  assert.equal(result!.intent.parameters.showCode, true);
+  assert.equal(original.configuration.intent.parameters.showCode, false);
   assert.equal(
     await editConfiguration(
       original,
-      prompts(["showCode", "$save", "$back"], [true, false]),
+      prompts(["showCode", "$back"], [true, true]),
       () => {},
     ),
     undefined,
   );
-  assert.equal(original.configuration.intent.parameters.showCode, false);
 });
 test("invalid numeric input does not silently become zero", async () => {
   let output = "";
@@ -131,8 +136,8 @@ test("unknown entity choices require an explicit JSON fallback", async () => {
   const result = await editConfiguration(
     description,
     prompts(
-      ["currency", "$save"],
-      [true, true],
+      ["$advanced", "currency", "json", "$save"],
+      [],
       ['{"identifier":"GBP","metadata":{"title":"Pound"}}'],
     ),
     () => {},
@@ -241,7 +246,7 @@ test("catalog wizard backs from sizes through kinds and apps without writing", a
     "Back",
     "Other",
     "second",
-    "medium",
+    "Medium",
   ];
   const messages: string[] = [];
   const answers: Prompts = {
@@ -273,7 +278,7 @@ for (const action of ["null", "remove"]) {
     let output = "";
     const result = await editConfiguration(
       description,
-      prompts(["showCode", action, "$save"], [true]),
+      prompts(["$advanced", "showCode", action, "$save"], []),
       (text) => {
         output += text;
       },
@@ -283,12 +288,7 @@ for (const action of ["null", "remove"]) {
       assert.equal(result.intent.parameters.showCode, null);
     else
       assert.equal(Object.hasOwn(result.intent.parameters, "showCode"), false);
-    assert.match(
-      output,
-      action === "null"
-        ? /showCode: false → null/
-        : /showCode: false → \(absent\)/,
-    );
+    assert.equal(output, "");
     assert.equal(description.configuration.intent.parameters.showCode, false);
   });
 }
@@ -530,7 +530,7 @@ for (const type of ["entity", "entities"] as const) {
   }
 }
 
-test("only explicit recoverable query failures permit the JSON fallback", async () => {
+test("recoverable query failures return safely without implicitly opening JSON", async () => {
   for (const code of [
     "UNSUPPORTED_CHOICES",
     "QUERY_TIMEOUT",
@@ -555,7 +555,7 @@ test("only explicit recoverable query failures permit the JSON fallback", async 
       ),
       undefined,
     );
-    assert.equal(offeredFallback, true, code);
+    assert.equal(offeredFallback, false, code);
   }
 });
 
@@ -632,3 +632,115 @@ for (const type of ["entity", "entities"] as const) {
     }
   });
 }
+
+test("human summaries show inline changes and saving is the final action without confirmation", async () => {
+  const description = structuredClone(original);
+  description.fields[1]!.optional = true;
+  description.configuration.intent.parameters.caption = "Hello";
+  description.fields.push({
+    key: "caption",
+    label: "Caption",
+    type: "string",
+    value: "Hello",
+    present: true,
+  });
+  const snapshots: string[][] = [];
+  let step = 0;
+  const questions: Prompts = {
+    ...prompts([], []),
+    select: async (_message, choices) => {
+      snapshots.push(choices.map((choice) => choice.name));
+      if (step++ === 0) return "showCode" as never;
+      return choices.at(-1)!.value;
+    },
+    confirm: async (message) => {
+      assert.equal(message, "Show code");
+      return true;
+    },
+  };
+  const result = await editConfiguration(description, questions, () => {});
+  assert.equal(result!.intent.parameters.showCode, true);
+  assert.ok(snapshots[0]!.includes("Currency: Dollar"));
+  assert.ok(snapshots[0]!.includes("Show code: Off"));
+  assert.ok(snapshots[0]!.includes("Caption: Hello"));
+  assert.ok(snapshots[1]!.includes("Show code: Off → On"));
+  assert.equal(snapshots[1]!.at(-1), "Save changes · 1");
+});
+
+test("clean Back and Advanced Back return without confirmation or raw editing", async () => {
+  const questions = prompts(["$advanced", "currency", "back", "$back"], []);
+  questions.confirm = async () =>
+    assert.fail("Clean Back must not ask for confirmation");
+  questions.editor = async () =>
+    assert.fail("Advanced Back must not open JSON");
+  assert.equal(
+    await editConfiguration(original, questions, () => {}),
+    undefined,
+  );
+});
+
+test("raw editor cancellation propagates without returning a draft", async () => {
+  const questions = prompts(["$advanced", "currency", "json"], []);
+  const failure = new Error("Cancelled");
+  failure.name = "AbortPromptError";
+  questions.editor = async () => {
+    throw failure;
+  };
+  await assert.rejects(
+    editConfiguration(original, questions, () => {}),
+    (error) => error === failure,
+  );
+  assert.deepEqual(original.configuration.intent.parameters.currency, {
+    identifier: "USD",
+    metadata: { title: "Dollar" },
+  });
+});
+
+test("narrow editor keeps both sides of a long changed value visible", async () => {
+  const previous = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+  const description = structuredClone(original);
+  description.fields = [
+    {
+      key: "note",
+      label: "A long caption field",
+      type: "string",
+      present: true,
+      value: "Original caption that is long",
+    },
+  ];
+  description.configuration.intent.parameters = {
+    note: "Original caption that is long",
+  };
+  let step = 0;
+  try {
+    Object.defineProperty(process.stdout, "columns", {
+      value: 40,
+      configurable: true,
+    });
+    const result = await editConfiguration(
+      description,
+      {
+        select: async (_message, choices) => {
+          if (step++ === 0) return "note" as never;
+          const row = choices[0]!.name;
+          assert.match(row, /Origi.*→ Updat/);
+          assert.ok([...row].length <= 32);
+          return choices.find((choice) =>
+            choice.name.startsWith("Save changes"),
+          )!.value as never;
+        },
+        input: async () => "Updated caption that is long",
+        confirm: async () => assert.fail("saving must not ask twice"),
+        editor: async () => assert.fail("normal strings do not use raw JSON"),
+      },
+      () => {},
+    );
+    assert.equal(
+      result!.intent.parameters.note,
+      "Updated caption that is long",
+    );
+  } finally {
+    if (previous) Object.defineProperty(process.stdout, "columns", previous);
+    else Reflect.deleteProperty(process.stdout, "columns");
+  }
+});

@@ -1,3 +1,4 @@
+import { compactText, compactValue, uniqueNames, mark } from "./human.js";
 import { setTimeout as delay } from "node:timers/promises";
 import { isFiniteDecimalString, nativeDecimalString } from "./configuration.js";
 import { stripVTControlCharacters } from "node:util";
@@ -30,8 +31,11 @@ export type {
   ConfigurationField,
   ConfigurationDescription,
 } from "./configuration.js";
-import type { ConfigurationDescription } from "./configuration.js";
-export function parameterChanges(
+import type {
+  ConfigurationDescription,
+  ConfigurationField,
+} from "./configuration.js";
+function changedParameters(
   original: WidgetConfiguration,
   draft: WidgetConfiguration,
 ): string[] {
@@ -40,16 +44,11 @@ export function parameterChanges(
       ...Object.keys(original.intent.parameters),
       ...Object.keys(draft.intent.parameters),
     ]),
-  ]
-    .filter(
-      (key) =>
-        JSON.stringify(original.intent.parameters[key]) !==
-        JSON.stringify(draft.intent.parameters[key]),
-    )
-    .map(
-      (key) =>
-        `${key}: ${Object.hasOwn(original.intent.parameters, key) ? JSON.stringify(original.intent.parameters[key]) : "(absent)"} → ${Object.hasOwn(draft.intent.parameters, key) ? JSON.stringify(draft.intent.parameters[key]) : "(absent)"}`,
-    );
+  ].filter(
+    (key) =>
+      JSON.stringify(original.intent.parameters[key]) !==
+      JSON.stringify(draft.intent.parameters[key]),
+  );
 }
 export async function editConfiguration(
   description: ConfigurationDescription,
@@ -66,49 +65,161 @@ export async function editConfiguration(
   const draft = structuredClone(original);
   const save = Symbol("save");
   const back = Symbol("back");
+  const advanced = Symbol("advanced");
+  const knownChoices = new Map(
+    description.fields.map((field) => [field.key, [...(field.choices ?? [])]]),
+  );
+  const summary = (
+    configuration: WidgetConfiguration,
+    field: ConfigurationField,
+  ) => {
+    if (!Object.hasOwn(configuration.intent.parameters, field.key))
+      return "Not set";
+    const value = configuration.intent.parameters[field.key]!;
+    if (
+      field.type === "number" &&
+      field.numberEncoding &&
+      typeof value === "string"
+    ) {
+      const normalized = nativeDecimalString(
+        value,
+        description.numberFormat?.decimalSeparator ?? ".",
+      );
+      if (normalized !== undefined) return compactValue(normalized);
+    }
+    return compactValue(value, knownChoices.get(field.key));
+  };
+  const editAdvanced = async (field: ConfigurationField) => {
+    if (field.type === "unsupported") {
+      write(`${field.reason ?? "This parameter cannot be edited safely."}\n`);
+      return;
+    }
+    const action = await prompts.select(`Advanced · ${field.label}`, [
+      { name: "Edit raw JSON", value: "json" },
+      ...(field.optional
+        ? [
+            { name: "Set explicit null", value: "null" },
+            { name: "Remove parameter (absent)", value: "remove" },
+          ]
+        : []),
+      { name: "Back", value: "back" },
+    ]);
+    if (action === "back") return;
+    if (action === "null") {
+      draft.intent.parameters[field.key] = null;
+      return;
+    }
+    if (action === "remove") {
+      delete draft.intent.parameters[field.key];
+      return;
+    }
+    try {
+      const value = JSON.parse(
+        await prompts.editor(
+          field.label,
+          JSON.stringify(draft.intent.parameters[field.key] ?? null, null, 2),
+        ),
+        (_key, value) => {
+          if (typeof value === "number" && !Number.isFinite(value))
+            throw new Error("Numbers must be finite");
+          return value;
+        },
+      ) as JsonValue;
+      if (field.type === "entities" && !Array.isArray(value))
+        throw new Error("Expected a JSON array");
+      if (field.choices?.length) {
+        const values =
+          field.type === "entities" && Array.isArray(value) ? value : [value];
+        if (
+          !values.every((entry) =>
+            field.choices!.some(
+              (choice) =>
+                JSON.stringify(choice.value) === JSON.stringify(entry),
+            ),
+          )
+        )
+          throw new Error("Choose only advertised values");
+      }
+      draft.intent.parameters[field.key] = value;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        ["AbortPromptError", "ExitPromptError", "AbortError"].includes(
+          error.name,
+        )
+      )
+        throw error;
+      write(
+        `Invalid JSON: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    }
+  };
   for (;;) {
+    const changes = changedParameters(original, draft);
     const key = await prompts.select<string | symbol>(
       "Edit widget configuration",
       [
-        ...description.fields.map((field) => ({
-          name: `${field.label}: ${Object.hasOwn(draft.intent.parameters, field.key) ? JSON.stringify(draft.intent.parameters[field.key]) : "(absent)"}${field.type === "unsupported" ? " (read only)" : ""}`,
-          value: field.key,
-        })),
-        { name: "Review and save", value: save },
-        { name: "Discard and go back", value: back },
+        ...description.fields.map((field) => {
+          const changed =
+            JSON.stringify(original.intent.parameters[field.key]) !==
+            JSON.stringify(draft.intent.parameters[field.key]);
+          const rowWidth = Math.max(20, (process.stdout.columns || 80) - 8);
+          const label = compactText(
+            field.label,
+            Math.min(22, Math.floor(rowWidth / 3)),
+          );
+          const available = Math.max(
+            6,
+            rowWidth -
+              [...label].length -
+              2 -
+              (field.type === "unsupported" ? 12 : 0),
+          );
+          const previewWidth = changed
+            ? Math.max(1, Math.floor((available - 3) / 2))
+            : available;
+          const value = changed
+            ? `${compactText(summary(original, field), previewWidth)} → ${compactText(summary(draft, field), previewWidth)}`
+            : compactText(summary(draft, field), previewWidth);
+          return {
+            name: `${label}: ${value}${field.type === "unsupported" ? " (read only)" : ""}`,
+            value: field.key,
+          };
+        }),
+        { name: "Advanced…", value: advanced },
+        { name: "Back", value: back },
+        { name: `Save changes · ${changes.length}`, value: save },
       ],
     );
-    if (key === back) return undefined;
+    if (key === back) {
+      if (
+        !changes.length ||
+        (await prompts.confirm("Discard unsaved changes?", false))
+      )
+        return undefined;
+      continue;
+    }
     if (key === save) {
-      const changes = parameterChanges(original, draft);
       if (!changes.length) {
         write("No changes to save.\n");
         return undefined;
       }
-      write(`${changes.join("\n")}\n`);
-      if (await prompts.confirm("Save these changes?", false)) return draft;
+      return draft;
+    }
+    if (key === advanced) {
+      const selected = await prompts.select("Advanced", [
+        ...description.fields
+          .filter((field) => field.type !== "unsupported")
+          .map((field) => ({ name: field.label, value: field.key })),
+        { name: "Back", value: "" },
+      ]);
+      const field = description.fields.find((field) => field.key === selected);
+      if (field) await editAdvanced(field);
       continue;
     }
     if (typeof key !== "string") continue;
     let field = description.fields.find((field) => field.key === key);
     if (!field) continue;
-    if (field.optional && field.type !== "unsupported") {
-      const action = await prompts.select(`Change ${field.label}`, [
-        { name: "Edit value", value: "edit" },
-        { name: "Set explicit null", value: "null" },
-        { name: "Remove parameter (absent)", value: "remove" },
-        { name: "Back", value: "back" },
-      ]);
-      if (action === "back") continue;
-      if (action === "null") {
-        draft.intent.parameters[key] = null;
-        continue;
-      }
-      if (action === "remove") {
-        delete draft.intent.parameters[key];
-        continue;
-      }
-    }
     const current = draft.intent.parameters[key];
     if (
       ["enum", "entity", "entities"].includes(field.type) &&
@@ -132,11 +243,26 @@ export async function editConfiguration(
           );
         }
         const lookup = async (term: string, signal?: AbortSignal) => {
-          if (term)
-            return choicesForField(key, term, structuredClone(draft), signal);
+          if (term) {
+            const choices = await choicesForField(
+              key,
+              term,
+              structuredClone(draft),
+              signal,
+            );
+            knownChoices.set(key, [
+              ...(knownChoices.get(key) ?? []),
+              ...choices,
+            ]);
+            return choices;
+          }
           if (initialError) throw initialError;
           return initialChoices;
         };
+        knownChoices.set(key, [
+          ...(knownChoices.get(key) ?? []),
+          ...initialChoices,
+        ]);
         type FailedChoice = { action: "fatal"; error: unknown };
         let fatalError: { value: unknown } | undefined;
         const supersededSearch = (error: unknown, signal?: AbortSignal) =>
@@ -167,11 +293,11 @@ export async function editConfiguration(
                     { name: "Done", value: { action: "done" } },
                     { name: "Discard selection", value: { action: "back" } },
                     {
-                      name: "Edit complete JSON value",
+                      name: "Advanced…",
                       value: { action: "json" },
                     },
                     ...(await lookup(term, signal)).map((choice) => ({
-                      name: `${selected.some((value) => JSON.stringify(value) === JSON.stringify(choice.value)) ? "✓" : "○"} ${choice.label}`,
+                      name: `${selected.some((value) => JSON.stringify(value) === JSON.stringify(choice.value)) ? mark("✓", "[x]") : mark("○", "[ ]")} ${choice.label}`,
                       value: { action: "toggle" as const, value: choice.value },
                     })),
                   ];
@@ -184,7 +310,7 @@ export async function editConfiguration(
                   return [
                     { name: "Back", value: { action: "back" } },
                     {
-                      name: `Choice lookup failed: ${error instanceof Error ? error.message : String(error)}. Edit JSON instead`,
+                      name: `Choice lookup failed: ${error instanceof Error ? error.message : String(error)}. Advanced…`,
                       value: { action: "json" },
                     },
                   ];
@@ -211,7 +337,8 @@ export async function editConfiguration(
               else selected.push(structuredClone(choice.value));
             }
           }
-          if (!fallback) continue;
+          if (fallback) await editAdvanced(field);
+          continue;
         } else if (prompts.search) {
           type Selection =
             | { action: "back" | "json" }
@@ -229,7 +356,7 @@ export async function editConfiguration(
                     value: { action: "value" as const, value: choice.value },
                   })),
                   {
-                    name: "Edit complete JSON value",
+                    name: "Advanced…",
                     value: { action: "json" },
                   },
                 ];
@@ -242,7 +369,7 @@ export async function editConfiguration(
                 return [
                   { name: "Back", value: { action: "back" } },
                   {
-                    name: `Choice lookup failed: ${error instanceof Error ? error.message : String(error)}. Edit JSON instead`,
+                    name: `Choice lookup failed: ${error instanceof Error ? error.message : String(error)}. Advanced…`,
                     value: { action: "json" },
                   },
                 ];
@@ -252,10 +379,9 @@ export async function editConfiguration(
           if (fatalError) throw fatalError.value;
           if (choice.action === "fatal") throw choice.error;
           if (choice.action === "back") continue;
-          if ("value" in choice) {
-            draft.intent.parameters[key] = choice.value;
-            continue;
-          }
+          if ("value" in choice) draft.intent.parameters[key] = choice.value;
+          else await editAdvanced(field);
+          continue;
         } else if (initialChoices.length)
           field = { ...field, choices: initialChoices };
       } catch (error) {
@@ -279,7 +405,7 @@ export async function editConfiguration(
       for (;;) {
         const choice = await prompts.select(field.label, [
           ...field.choices.map((choice, index) => ({
-            name: `${selected.some((value) => JSON.stringify(value) === JSON.stringify(choice.value)) ? "✓" : "○"} ${choice.label}`,
+            name: `${selected.some((value) => JSON.stringify(value) === JSON.stringify(choice.value)) ? mark("✓", "[x]") : mark("○", "[ ]")} ${choice.label}`,
             value: index,
           })),
           { name: "Done", value: -1 },
@@ -336,43 +462,50 @@ export async function editConfiguration(
             : Number(value);
     } else {
       write(
-        `${field.reason ?? "No reliable choice list is available."} Edit the complete JSON value only if you know its identifiers.\n`,
+        `${field.reason ?? "No reliable choice list is available."} Use Advanced to edit raw JSON.\n`,
       );
-      if (!(await prompts.confirm("Edit this parameter as JSON?", false)))
-        continue;
-      try {
-        const value = JSON.parse(
-          await prompts.editor(field.label, JSON.stringify(current, null, 2)),
-          (_key, value) => {
-            if (typeof value === "number" && !Number.isFinite(value))
-              throw new Error("Numbers must be finite");
-            return value;
-          },
-        ) as JsonValue;
-        if (field.type === "entities" && !Array.isArray(value))
-          throw new Error("Expected a JSON array");
-        if (
-          field.choices?.length &&
-          Array.isArray(value) &&
-          !value.every((entry) =>
-            field.choices!.some(
-              (choice) =>
-                JSON.stringify(choice.value) === JSON.stringify(entry),
-            ),
-          )
-        )
-          throw new Error("Choose only advertised values");
-        draft.intent.parameters[key] = value;
-      } catch (error) {
-        write(
-          `Invalid JSON: ${error instanceof Error ? error.message : String(error)}\n`,
-        );
-      }
     }
   }
 }
 export async function createPrompts(signal: AbortSignal): Promise<Prompts> {
-  const { search, input, confirm, editor } = await import("@inquirer/prompts");
+  const { search, select, input, confirm, editor } =
+    await import("@inquirer/prompts");
+  const plain = (value: string) => value;
+  const theme = {
+    ...(process.env.WIDGETCTL_NO_EMOJI === "1" || process.env.TERM === "dumb"
+      ? {
+          prefix: { idle: "?", done: ">" },
+          spinner: { interval: 100, frames: ["-", "\\", "|", "/"] },
+          icon: { cursor: ">" },
+        }
+      : {}),
+    ...(process.env.NO_COLOR !== undefined
+      ? {
+          prefix: { idle: "?", done: ">" },
+          style: {
+            answer: plain,
+            message: plain,
+            error: plain,
+            help: plain,
+            highlight: plain,
+            description: plain,
+            disabled: plain,
+            searchTerm: plain,
+          },
+        }
+      : {}),
+  };
+  const searchTheme = {
+    ...theme,
+    style: {
+      ...theme.style,
+      keysHelpTip: () =>
+        compactText(
+          "Type to search · ↑↓ move · Enter select",
+          Math.max(20, (process.stdout.columns || 80) - 2),
+        ),
+    },
+  };
   return {
     search: <T>(
       message: string,
@@ -381,44 +514,61 @@ export async function createPrompts(signal: AbortSignal): Promise<Prompts> {
       search(
         {
           message: terminalText(message, true),
+          theme: searchTheme,
+          pageSize: Math.min(10, Math.max(3, (process.stdout.rows ?? 24) - 8)),
           source: async (term, context) => {
             if (term) await delay(250, undefined, { signal: context.signal });
             if (context.signal.aborted) return [];
             return (await source(term ?? "", context.signal)).map((choice) => ({
               ...choice,
-              name: terminalText(choice.name, true),
+              name: compactText(
+                terminalText(choice.name, true),
+                Math.max(20, (process.stdout.columns ?? 80) - 8),
+              ),
             }));
           },
         },
         { signal },
       ),
-    select: <T>(message: string, choices: Choice<T>[]) =>
-      search(
-        {
-          message: terminalText(message, true),
-          source: async (term) =>
-            choices
-              .filter((choice) =>
-                terminalText(choice.name, true)
-                  .toLowerCase()
-                  .includes((term ?? "").toLowerCase()),
-              )
-              .map((choice) => ({
-                ...choice,
-                name: terminalText(choice.name, true),
-                ...(choice.description
-                  ? { description: terminalText(choice.description, true) }
-                  : {}),
-              })),
-        },
-        { signal },
-      ),
+    select: <T>(message: string, choices: Choice<T>[]) => {
+      const options = choices.map((choice) => ({
+        ...choice,
+        name: compactText(
+          terminalText(choice.name, true),
+          Math.max(20, (process.stdout.columns ?? 80) - 8),
+        ),
+        ...(choice.description
+          ? { description: terminalText(choice.description, true) }
+          : {}),
+      }));
+      const config = {
+        message: terminalText(message, true),
+        theme,
+        pageSize: Math.min(10, Math.max(3, (process.stdout.rows ?? 24) - 8)),
+      };
+      return choices.length <= 10
+        ? select({ ...config, choices: options }, { signal })
+        : search(
+            {
+              ...config,
+              theme: searchTheme,
+              source: async (term) =>
+                options.filter((_choice, index) =>
+                  terminalText(choices[index]!.name, true)
+                    .toLowerCase()
+                    .includes((term ?? "").toLowerCase()),
+                ),
+            },
+            { signal },
+          );
+    },
     input: async (message, initial) => {
       if (initial !== undefined && terminalText(initial, true) !== initial) {
         if (
           await confirm(
             {
               message: `Keep the current value for ${terminalText(message, true)} unchanged?`,
+              theme,
               default: true,
             },
             { signal },
@@ -426,23 +576,23 @@ export async function createPrompts(signal: AbortSignal): Promise<Prompts> {
         )
           return initial;
         return editor(
-          { message: terminalText(message, true), default: initial },
+          { message: terminalText(message, true), theme, default: initial },
           { signal },
         );
       }
       return input(
-        { message: terminalText(message, true), default: initial },
+        { message: terminalText(message, true), theme, default: initial },
         { signal },
       );
     },
     confirm: (message, initial = false) =>
       confirm(
-        { message: terminalText(message, true), default: initial },
+        { message: terminalText(message, true), theme, default: initial },
         { signal },
       ),
     editor: (message, initial) =>
       editor(
-        { message: terminalText(message, true), default: initial },
+        { message: terminalText(message, true), theme, default: initial },
         { signal },
       ),
   };
@@ -479,6 +629,9 @@ export async function selectCatalogTarget(
       "No installed catalog widget matches the requested app, extension, kind and size.",
     );
   const back = Symbol("back");
+  const appNames = uniqueNames(
+    available.map((app) => ({ name: app.name, id: app.bundleIdentifier })),
+  );
   let stage: "app" | "kind" | "size" = "app";
   let app: CatalogApp | undefined;
   let widget: CatalogApp["widgets"][number] | undefined;
@@ -490,8 +643,8 @@ export async function selectCatalogTarget(
         available.length === 1
           ? available[0]!
           : await prompts!.select<CatalogApp | symbol>("Choose an app", [
-              ...available.map((app) => ({
-                name: `${app.name} • ${app.bundleIdentifier}`,
+              ...available.map((app, index) => ({
+                name: appNames[index]!,
                 value: app,
               })),
               { name: "Cancel", value: back },
@@ -501,6 +654,13 @@ export async function selectCatalogTarget(
       stage = "kind";
     } else if (stage === "kind") {
       const widgets = app!.widgets.filter(matchesWidget);
+      const widgetNames = uniqueNames(
+        widgets.map((widget) => ({
+          name: widget.name ?? widget.target.kind,
+          id: widget.target.kind,
+          detail: widget.target.extension,
+        })),
+      );
       if (!widgets.length)
         throw new Error(
           "Requested widget kind is absent from the installed catalog.",
@@ -515,8 +675,8 @@ export async function selectCatalogTarget(
           : await prompts!.select<CatalogApp["widgets"][number] | symbol>(
               "Choose a widget kind",
               [
-                ...widgets.map((widget) => ({
-                  name: `${widget.name ?? widget.target.kind} • ${widget.target.extension}`,
+                ...widgets.map((widget, index) => ({
+                  name: widgetNames[index]!,
                   value: widget,
                 })),
                 {
@@ -554,7 +714,13 @@ export async function selectCatalogTarget(
           : await prompts!.select<
               import("./controller.js").WidgetSize | symbol
             >("Choose a size", [
-              ...widget!.sizes.map((size) => ({ name: size, value: size })),
+              ...widget!.sizes.map((size) => ({
+                name: size
+                  .replace(/(^|[-_ ])\w/g, (letter) => letter.toUpperCase())
+                  .replaceAll("-", " ")
+                  .replaceAll("_", " "),
+                value: size,
+              })),
               {
                 name: canChooseKind
                   ? "Back to widget kinds"

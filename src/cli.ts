@@ -10,7 +10,13 @@ import {
   type WidgetCatalog,
   type InstalledWidget,
 } from "./controller.js";
-import { listSimulators, type Simulator } from "./discovery.js";
+import {
+  listSimulators,
+  listApplications,
+  type Simulator,
+  type Application,
+} from "./discovery.js";
+import { compactText, uniqueNames, mark, titleCase } from "./human.js";
 import { command } from "./backend-runtime.js";
 import { doctor } from "./doctor.js";
 import { WidgetctlError, classifyError } from "./errors.js";
@@ -68,6 +74,7 @@ export interface CliRuntime {
   stdout(text: string): void;
   stderr(text: string): void;
   devices(): Promise<Simulator[]>;
+  applications(udid: string): Promise<Application[]>;
   boot(udid: string): Promise<void>;
   controller(options: WidgetControllerOptions): WidgetController;
   prompts(signal: AbortSignal): Promise<Prompts>;
@@ -83,6 +90,7 @@ const defaults: CliRuntime = {
     process.stderr.write(text);
   },
   devices: listSimulators,
+  applications: listApplications,
   doctor,
   boot: async (udid) => {
     await command(["xcrun", "simctl", "boot", udid]);
@@ -262,12 +270,14 @@ export async function runCli(
       json
         ? emit({ ...report, status: "diagnosed" })
         : io.stdout(
-            report.checks
-              .map(
-                (check) =>
-                  `${check.status.toUpperCase()} ${check.id}: ${check.message}${check.recovery?.length ? `\n${check.recovery.map((step) => `  ${step}`).join("\n")}` : ""}`,
-              )
-              .join("\n") + "\n",
+            `${report.healthy ? mark("✓", "OK") + " Ready" : mark("⚠", "!") + " Setup needs attention"} · ${report.checks.filter((check) => check.status === "pass").length} checks passed\n` +
+              report.checks
+                .filter((check) => check.status !== "pass")
+                .map(
+                  (check) =>
+                    `${check.status === "warn" ? "!" : "×"} ${check.message}\n${(check.recovery ?? []).map((step) => `  ${step}\n`).join("")}`,
+                )
+                .join(""),
           );
       return report.healthy ? 0 : 1;
     };
@@ -275,11 +285,62 @@ export async function runCli(
     let controller: WidgetController | undefined;
     let workerAttempted = false;
     let prepared = false;
+    let sessionConsent = false;
+    let lastFailure: ReturnType<typeof classifyError> | undefined;
+    const appNames = new Map<string, string>();
+    const catalogNames = new Map<string, string>();
+    let catalogNamesLoaded = false;
+    const rememberCatalog = (catalog: WidgetCatalog) => {
+      catalogNamesLoaded = true;
+      for (const app of catalog.apps) {
+        appNames.set(app.bundleIdentifier, app.name);
+        for (const widget of app.widgets)
+          if (widget.name)
+            catalogNames.set(
+              `${widget.target.extension}\0${widget.target.kind}`,
+              widget.name,
+            );
+      }
+    };
+    const progress = (message: string) => {
+      const visible =
+        guided && !injected.stdout && !injected.stderr && process.stderr.isTTY;
+      if (visible)
+        process.stderr.write(
+          `\r${compactText(message, Math.max(20, (process.stderr.columns || 80) - 2))}`,
+        );
+      return () => {
+        if (visible) process.stderr.write("\r\x1b[2K");
+      };
+    };
+    const loadAppNames = async () => {
+      if (json || !device || appNames.size) return;
+      try {
+        for (const app of await io.applications(device.udid))
+          appNames.set(app.bundleIdentifier, app.name);
+      } catch {}
+    };
+    const widgetName = (widget: InstalledWidget) =>
+      `${appNames.get(widget.target.container) ?? widget.target.container} · ${widget.name ?? catalogNames.get(`${widget.target.extension}\0${widget.target.kind}`) ?? (widget.target.kind.includes(".") ? "Widget" : widget.target.kind)} · ${titleCase(widget.target.size)}`;
+    const widgetNames = (widgets: InstalledWidget[]) =>
+      uniqueNames(
+        widgets.map((widget) => ({
+          name: widgetName(widget),
+          id: widget.target.iconIdentifier,
+          detail: widget.position
+            ? `Page ${widget.position.page + 1}, item ${widget.position.index + 1}`
+            : undefined,
+        })),
+      );
     const release = async (operationError?: unknown) => {
       try {
         if (workerAttempted && controller) {
-          if (guided) io.stderr("Releasing the widget helper…\n");
-          await controller.release();
+          const finish = progress("Finishing session…");
+          try {
+            await controller.release();
+          } finally {
+            finish();
+          }
         }
       } catch (error) {
         throw new CleanupError(
@@ -298,14 +359,20 @@ export async function runCli(
           "No available iOS simulators found.",
           "DEVICE_NOT_FOUND",
         );
+      const names = uniqueNames(
+        devices.map((device) => ({
+          name: `${device.name} · iOS ${device.runtime}${device.state === "booted" ? " · Running" : ""}`,
+          id: device.udid,
+        })),
+      );
       const selected = await (
         await getPrompts()
-      ).select("Choose a simulator you own", [
-        ...devices.map((device) => ({
-          name: `${device.name} • iOS ${device.runtime} • ${device.state} • ${device.udid}`,
+      ).select("Choose a simulator", [
+        ...devices.map((device, index) => ({
+          name: names[index]!,
           value: device.udid,
         })),
-        { name: "Back / cancel", value: "$back" },
+        { name: "Back", value: "$back" },
       ]);
       if (selected === "$back") throw new Cancelled();
       const selectedDevice = devices.find(
@@ -332,7 +399,7 @@ export async function runCli(
               devices
                 .map(
                   (device) =>
-                    `${device.name} • iOS ${device.runtime} • ${device.state} • ${device.udid}`,
+                    `${device.name} · iOS ${device.runtime} · ${device.state === "booted" ? "Running" : "Stopped"}`,
                 )
                 .join("\n") + "\n",
             );
@@ -362,38 +429,39 @@ export async function runCli(
           "DEVICE_NOT_FOUND",
         );
       if (!device) device = await chooseDevice(devices);
-      if (device.state !== "booted") {
-        if (prepared) await release();
-        if (!guided)
-          throw new InputError(
-            "The selected simulator must already be booted.",
-            "DEVICE_NOT_BOOTED",
-          );
+      const needsWorker = !["list", "$details"].includes(action);
+      if (device.state !== "booted" && prepared) await release();
+      if (device.state !== "booted" && !guided)
+        throw new InputError(
+          "The selected simulator must already be booted.",
+          "DEVICE_NOT_BOOTED",
+        );
+      if (
+        guided &&
+        (device.state !== "booted" ||
+          (needsWorker && !prepared && !sessionConsent))
+      ) {
+        const notice = needsWorker ? " Home Screen may restart." : "";
+        const verb =
+          device.state !== "booted" ? "Boot and use" : "Start session on";
         if (
           !(await (
             await getPrompts()
-          ).confirm(
-            `Boot ${device.name} (${device.udid}) and claim it for this operation?`,
-            false,
-          ))
+          ).confirm(`${verb} ${compactText(device.name, 28)}?${notice}`, false))
         )
           throw new Cancelled();
-        await io.boot(device.udid);
+        if (needsWorker) sessionConsent = true;
+      }
+      if (device.state !== "booted") {
+        const finish = progress(`Starting ${device.name}…`);
+        try {
+          await io.boot(device.udid);
+        } finally {
+          finish();
+        }
         device = { ...device, state: "booted" };
       }
-      const needsWorker = action !== "list";
-      if (
-        needsWorker &&
-        !prepared &&
-        guided &&
-        !(await (
-          await getPrompts()
-        ).confirm(
-          `Prepare ${device.name}? Its UI may restart. Confirm you own this simulator.`,
-          false,
-        ))
-      )
-        throw new Cancelled();
+      abort.signal.throwIfAborted();
       controller ??= io.controller({
         udid: device.udid,
         stateDirectory: values["state-dir"],
@@ -401,28 +469,32 @@ export async function runCli(
         launchDomain: values["launch-domain"],
       });
       let result: Record<string, unknown>;
+      let humanResult = "";
       let operationError: unknown;
       try {
         if (needsWorker && !prepared) {
-          if (guided)
-            io.stderr("Preparing the selected simulator's widget helper…\n");
           workerAttempted = true;
-          await controller.prepare();
+          const finish = progress("Starting widget session…");
+          try {
+            await controller.prepare();
+          } finally {
+            finish();
+          }
           prepared = true;
         }
         abort.signal.throwIfAborted();
-        if (action === "catalog")
-          result = {
-            status: "catalogued",
-            catalog: await controller.catalog(),
-          };
-        else if (action === "list")
+        if (action === "catalog") {
+          const catalog = await controller.catalog();
+          rememberCatalog(catalog);
+          result = { status: "catalogued", catalog };
+        } else if (action === "list")
           result = {
             status: "widgets_listed",
             widgets: await controller.installedWidgets(),
           };
         else if (action === "add") {
           const catalog = await controller.catalog();
+          rememberCatalog(catalog);
           let target: WidgetTarget | undefined;
           try {
             target = await selectCatalogTarget(
@@ -447,6 +519,14 @@ export async function runCli(
             exclusive: values.exclusive,
             position: values.position as "top" | undefined,
           });
+          const entry = catalog.apps
+            .flatMap((app) => app.widgets)
+            .find(
+              (widget) =>
+                widget.target.extension === target.extension &&
+                widget.target.kind === target.kind,
+            );
+          humanResult = `${entry?.name ?? target.kind} · ${titleCase(target.size)} ready`;
           result = {
             status: "verified",
             target: handle.target,
@@ -454,36 +534,78 @@ export async function runCli(
           };
         } else {
           let icon = values.widget;
+          if (guided && needsWorker && !catalogNamesLoaded) {
+            try {
+              rememberCatalog(await controller.catalog());
+            } catch (error) {
+              if (
+                abort.signal.aborted ||
+                isCancellation(error) ||
+                [
+                  "OWNERSHIP_LOST",
+                  "UNSAFE_STATE",
+                  "CLEANUP_FAILED",
+                  "HELPER_UNAVAILABLE",
+                ].includes(classifyError(error).code)
+              )
+                throw error;
+              catalogNamesLoaded = true;
+            }
+          }
+          await loadAppNames();
+          const widgets =
+            guided || !json ? await controller.installedWidgets() : [];
           if (!icon) {
-            const widgets = await controller.installedWidgets();
             if (!widgets.length)
               throw new InputError(
                 "No installed widgets found. Add a widget first.",
                 "WIDGET_NOT_FOUND",
               );
+            const names = widgetNames(widgets);
             icon = await (
               await getPrompts()
-            ).select("Choose an exact installed widget", [
-              ...widgets.map((widget) => ({
-                name: `${widget.target.container} • ${widget.target.kind} • ${widget.target.size} • ${widget.position ? `page ${widget.position.page + 1}, item ${widget.position.index + 1}` : "position unavailable"} • ${widget.target.iconIdentifier}`,
+            ).select("Choose a widget", [
+              ...widgets.map((widget, index) => ({
+                name: names[index]!,
                 value: widget.target.iconIdentifier!,
               })),
-              { name: "Back / cancel", value: "$back" },
+              { name: "Back", value: "$back" },
             ]);
           }
           if (icon === "$back") throw new Cancelled();
+          const selectedWidget = widgets.find(
+            (widget) =>
+              widget.target.iconIdentifier.toUpperCase() ===
+              icon!.toUpperCase(),
+          );
+          const displayName = selectedWidget
+            ? widgetNames(widgets)[widgets.indexOf(selectedWidget)]!
+            : "widget";
+          if (action === "$details") {
+            if (!selectedWidget)
+              throw new InputError(
+                "Widget is no longer available.",
+                "WIDGET_NOT_FOUND",
+              );
+            io.stdout(
+              `${displayName}\nApp: ${selectedWidget.target.container}\nExtension: ${selectedWidget.target.extension}\nKind: ${selectedWidget.target.kind}\nSize: ${selectedWidget.target.size}\nWidget: ${icon}\n${selectedWidget.position ? `Page ${selectedWidget.position.page + 1}, item ${selectedWidget.position.index + 1}\n` : ""}`,
+            );
+            return 0;
+          }
           const handle = await controller.getWidget(icon);
           if (action === "remove") {
             if (
               guided &&
               !(await (
                 await getPrompts()
-              ).confirm(`Remove widget ${icon}?`, false))
+              ).confirm(`Remove ${displayName}?`, false))
             )
               throw new Cancelled();
             abort.signal.throwIfAborted();
             result = { ...(await handle.remove()) };
+            humanResult = `${displayName} removed`;
           } else if (action === "edit") {
+            if (guided) io.stdout(`${compactText(displayName)}\n`);
             const description = await handle.describeConfiguration();
             const draft = await editConfiguration(
               description,
@@ -496,8 +618,9 @@ export async function runCli(
                   signal: signal ?? abort.signal,
                 }),
             );
-            if (!draft) throw new Cancelled();
+            if (!draft) return 0;
             abort.signal.throwIfAborted();
+            humanResult = "Changes saved";
             result = {
               status: "configuration_applied",
               configuration: await handle.applyConfiguration(draft, {
@@ -522,6 +645,7 @@ export async function runCli(
                 file,
                 `${JSON.stringify(configuration, null, 2)}\n`,
               );
+              humanResult = `Configuration exported to ${file}`;
               result = {
                 status: "configuration_exported",
                 file,
@@ -531,6 +655,7 @@ export async function runCli(
               const configuration =
                 inputConfiguration ?? JSON.parse(await io.read(file));
               abort.signal.throwIfAborted();
+              humanResult = "Configuration applied";
               result = {
                 status: "configuration_applied",
                 configuration: await handle.applyConfiguration(configuration),
@@ -561,58 +686,82 @@ export async function runCli(
             ? catalog.apps
                 .map(
                   (app) =>
-                    `${app.name} • ${app.bundleIdentifier}\n${app.widgets.map((widget) => `  ${widget.name ?? widget.target.kind} • ${widget.target.extension} • ${widget.sizes.join(", ")}`).join("\n")}`,
+                    `${app.name}\n${app.widgets.map((widget) => `  ${widget.name ?? widget.target.kind} · ${widget.sizes.map(titleCase).join(", ")}`).join("\n")}`,
                 )
                 .join("\n") + "\n"
             : "No installed widget kinds found.\n",
         );
       } else if (action === "list") {
         const widgets = result.widgets as InstalledWidget[];
+        await loadAppNames();
         io.stdout(
           widgets.length
-            ? widgets
-                .map(
-                  (widget) =>
-                    `${widget.target.container} • ${widget.target.kind} • ${widget.target.size} • ${widget.target.iconIdentifier}${widget.position ? ` • page ${widget.position.page + 1}, item ${widget.position.index + 1}` : ""}`,
-                )
-                .join("\n") + "\n"
+            ? widgetNames(widgets).join("\n") + "\n"
             : "No installed widgets found.\n",
         );
       } else
         io.stdout(
-          `${String(result.status).replaceAll("_", " ")}${result.iconIdentifier ? ` • ${result.iconIdentifier}` : ""}${result.file ? ` • ${result.file}` : ""}\n`,
+          `${mark("✓", "OK")} ${humanResult || String(result.status).replaceAll("_", " ")}\n`,
         );
       return 0;
     };
     if (!persistent) return await execute(action!);
+    if (values.device)
+      device = (await io.devices()).find(
+        (candidate) =>
+          candidate.udid.toUpperCase() === values.device!.toUpperCase(),
+      );
     let sessionError: unknown;
     try {
       for (;;) {
         abort.signal.throwIfAborted();
         io.stdout(
-          `\n${device ? `${device.name} • ${device.udid}` : "No simulator selected"} • ${prepared ? "helper ready" : "helper not prepared"}\n`,
+          `\nwidgetctl${device ? ` · ${compactText(device.name)} · iOS ${device.runtime}` : ""}\n`,
         );
-        const selected = await (
+        let selected = await (
           await getPrompts()
         ).select("What would you like to do?", [
-          { name: "Add or reveal a widget", value: "add" },
-          { name: "Edit widget configuration", value: "edit" },
-          { name: "Remove a widget", value: "remove" },
-          { name: "Export configuration", value: "export" },
-          { name: "Apply configuration from a file", value: "configure" },
-          { name: "Browse installed widget catalog", value: "catalog" },
-          { name: "List installed widgets", value: "list" },
-          { name: "Check tooling and readiness", value: "doctor" },
-          { name: "Change simulator", value: "$device" },
+          { name: `${mark("➕", "+")} Add widget`, value: "add" },
+          { name: `${mark("✏️", "~")} Edit widget`, value: "edit" },
+          { name: `${mark("🗑", "-")} Remove widget`, value: "remove" },
+          { name: `${mark("⋯", "...")} More`, value: "$more" },
+          { name: `${mark("📱", "@")} Change simulator`, value: "$device" },
           { name: "Exit", value: "$exit" },
         ]);
         abort.signal.throwIfAborted();
         if (selected === "$exit") return 0;
+        if (selected === "$more") {
+          selected = await (
+            await getPrompts()
+          ).select("More", [
+            { name: "Browse widgets", value: "catalog" },
+            { name: "Installed widgets", value: "list" },
+            { name: "Widget details", value: "$details" },
+            { name: "Import configuration", value: "configure" },
+            { name: "Export configuration", value: "export" },
+            { name: "Diagnostics", value: "doctor" },
+            ...(lastFailure
+              ? [{ name: "Last error details", value: "$error" }]
+              : []),
+            { name: "Back", value: "$back" },
+          ]);
+          if (selected === "$back") continue;
+          if (selected === "$error" && lastFailure) {
+            io.stdout(
+              `${lastFailure.code}: ${lastFailure.message}\n${lastFailure.recovery.join("\n")}\n`,
+            );
+            continue;
+          }
+        }
         try {
           if (selected === "$device") {
             await release();
             device = undefined;
             values.device = undefined;
+            sessionConsent = false;
+            appNames.clear();
+            catalogNames.clear();
+            catalogNamesLoaded = false;
             device = await chooseDevice(await io.devices());
             continue;
           }
@@ -630,7 +779,6 @@ export async function runCli(
           )
             throw error;
           if (isCancellation(error)) {
-            io.stderr("Action cancelled.\n");
             continue;
           }
           const failure = classifyError(error);
@@ -652,8 +800,9 @@ export async function runCli(
             ].includes(failure.code)
           )
             await release(error);
+          lastFailure = failure;
           io.stderr(
-            `${failure.message}\n${failure.recovery.map((step) => `${step}\n`).join("")}`,
+            `${mark("⚠", "!")} ${compactText(failure.message, Math.max(20, (process.stderr.columns || 80) - 3))}\n${failure.recovery[0] ? `${failure.recovery[0]}\n` : ""}Details: More → Last error details\n`,
           );
         }
       }

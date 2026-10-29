@@ -70,6 +70,7 @@ function setup(overrides: Partial<CliRuntime> = {}) {
     devices: async () => [
       { udid, name: "Phone", state: "booted", runtime: "26.0" },
     ],
+    applications: async () => [{ bundleIdentifier: "app", name: "Example" }],
     controller: () => controller,
     prompts: async () => {
       throw new Error("Unexpected prompt");
@@ -203,7 +204,7 @@ test("guided exit before preparation does not initialize helpers", async () => {
   assert.equal(await runCli([], environment.runtime), 0);
   assert.deepEqual(environment.calls, []);
 });
-test("guided shutdown simulator requires explicit boot and UI restart consent", async () => {
+test("guided stopped simulator combines boot and session consent", async () => {
   const questions: string[] = [];
   const environment = setup({
     isTTY: true,
@@ -217,17 +218,17 @@ test("guided shutdown simulator requires explicit boot and UI restart consent", 
       select: async () => udid as never,
       confirm: async (message) => {
         questions.push(message);
-        return !message.startsWith("Prepare");
+        return true;
       },
       input: async () => "",
       editor: async () => "",
     }),
   });
-  assert.equal(await runCli(["catalog"], environment.runtime), 130);
-  assert.match(questions[0]!, /Boot.*claim/);
+  assert.equal(await runCli(["catalog"], environment.runtime), 0);
+  assert.equal(questions.length, 2);
+  assert.match(questions[0]!, /Boot and use Phone.*Home Screen.*restart/);
   assert.equal(questions[1], "booted");
-  assert.match(questions[2]!, /UI may restart/);
-  assert.deepEqual(environment.calls, []);
+  assert.deepEqual(environment.calls, ["prepare", "release"]);
 });
 test("CLI runs through an npm-style executable symlink", () => {
   const directory = mkdtempSync(join(tmpdir(), "widgetctl-bin-"));
@@ -393,7 +394,7 @@ test("guided sessions retain one helper across actions and fetch fresh catalogs"
     "list",
     "release",
   ]);
-  assert.match(environment.stdout(), /Phone.*helper ready/);
+  assert.match(environment.stdout(), /widgetctl.*Phone/);
   assert.equal(environment.selections.length, 0);
 });
 
@@ -455,7 +456,7 @@ test("cancelled widget pickers return to the session menu", async () => {
     ] as never;
   assert.equal(await runCli([], environment.runtime), 0);
   assert.deepEqual(environment.calls, ["prepare", "release"]);
-  assert.match(environment.stderr(), /Action cancelled/);
+  assert.equal(environment.stderr(), "");
 });
 
 test("cancelled configuration drafts return to menu and refresh exact widget handles", async () => {
@@ -463,8 +464,7 @@ test("cancelled configuration drafts return to menu and refresh exact widget han
     "edit",
     udid,
     icon,
-    (choices) =>
-      choices.find((choice) => choice.name === "Discard and go back")!.value,
+    (choices) => choices.find((choice) => choice.name === "Back")!.value,
     "remove",
     icon,
     "$exit",
@@ -636,7 +636,7 @@ test("catalog picker cancellation retains a prepared helper for the next action"
   });
   assert.equal(await runCli([], environment.runtime), 0);
   assert.deepEqual(environment.calls, ["prepare", "release"]);
-  assert.match(environment.stderr(), /Action cancelled/);
+  assert.equal(environment.stderr(), "");
 });
 
 test("session export and apply refresh exact widgets while keeping the helper", async () => {
@@ -750,7 +750,7 @@ test("unknown write outcomes release and require a fresh preparation before cont
       "prepare",
       "release",
     ]);
-    assert.equal(confirmations, 2);
+    assert.equal(confirmations, 1);
     assert.match(environment.stderr(), /Inspect the result/);
   }
 });
@@ -924,7 +924,7 @@ test("every failed mutation releases even when its error code cannot identify a 
       "prepare",
       "release",
     ]);
-    assert.equal(confirmations, 2);
+    assert.equal(confirmations, 1);
     assert.match(environment.stderr(), /Failure after native submission/);
   }
 });
@@ -961,4 +961,157 @@ test("raw terminal prompt interruption exits the session and releases its prepar
     assert.match(environment.stderr(), /Cancelled/);
     assert.doesNotMatch(environment.stderr(), /Action cancelled/);
   }
+});
+
+test("primary menu is compact and More keeps secondary actions reachable", async () => {
+  const menus: string[][] = [];
+  const environment = session([
+    (choices) => {
+      menus.push(choices.map((choice) => choice.name));
+      return "$more";
+    },
+    (choices) => {
+      menus.push(choices.map((choice) => choice.name));
+      return "$back";
+    },
+    "$exit",
+  ]);
+  assert.equal(await runCli(["--device", udid], environment.runtime), 0);
+  assert.equal(menus[0]!.length, 6);
+  assert.ok(menus[1]!.includes("Widget details"));
+  assert.ok(menus[1]!.includes("Diagnostics"));
+  assert.match(environment.stdout(), /Phone · iOS 26.0/);
+  assert.doesNotMatch(environment.stdout(), /helper|No simulator|208E/);
+  assert.deepEqual(environment.calls, []);
+});
+
+test("human widget list uses names and locations without preparing a worker", async () => {
+  const environment = setup();
+  environment.controller.installedWidgets = async () =>
+    [1, 2].map((page) => ({
+      name: "Rates",
+      target: {
+        container: "app",
+        extension: "app.widget",
+        kind: "internal-rates",
+        size: "small",
+        iconIdentifier: page === 1 ? icon : udid,
+      },
+      widgetIdentifier: String(page),
+      position: { page: page - 1, index: 0 },
+    })) as never;
+  assert.equal(
+    await runCli(["list", "--device", udid], environment.runtime),
+    0,
+  );
+  assert.match(
+    environment.stdout(),
+    /Example · Rates · Small · Page 1, item 1/,
+  );
+  assert.match(environment.stdout(), /Page 2, item 1/);
+  assert.doesNotMatch(environment.stdout(), /internal-rates|F08E|app.widget/);
+  assert.deepEqual(environment.calls, []);
+});
+
+test("details are explicit and read only", async () => {
+  const environment = session(["$more", "$details", udid, icon, "$exit"]);
+  environment.controller.installedWidgets = async () =>
+    [
+      {
+        name: "Rates",
+        target: {
+          container: "app",
+          extension: "app.widget",
+          kind: "rates",
+          size: "small",
+          iconIdentifier: icon,
+        },
+        widgetIdentifier: "saved",
+      },
+    ] as never;
+  assert.equal(await runCli([], environment.runtime), 0);
+  assert.match(environment.stdout(), /Widget: F08E6530/);
+  assert.match(environment.stdout(), /Extension: app.widget/);
+  assert.deepEqual(environment.calls, []);
+});
+
+test("declining combined start consent never boots or prepares", async () => {
+  const environment = setup({
+    isTTY: true,
+    devices: async () => [
+      { udid, name: "Phone", runtime: "26.0", state: "shutdown" },
+    ],
+    boot: async () => assert.fail("must not boot"),
+    prompts: async () => ({
+      select: async () => udid as never,
+      confirm: async () => false,
+      input: async () => "",
+      editor: async () => "",
+    }),
+  });
+  assert.equal(await runCli(["catalog"], environment.runtime), 130);
+  assert.deepEqual(environment.calls, []);
+});
+
+test("persistent errors stay concise while full details remain reachable without retry", async () => {
+  const message = `Lookup failed ${"technical detail ".repeat(30)}`;
+  const environment = session(["catalog", udid, "$more", "$error", "$exit"]);
+  let attempts = 0;
+  environment.controller.catalog = async () => {
+    attempts++;
+    throw new WidgetctlError(message, { code: "QUERY_FAILED" });
+  };
+  assert.equal(await runCli([], environment.runtime), 0);
+  assert.equal(attempts, 1);
+  assert.match(environment.stderr(), /Last error details/);
+  assert.ok(!environment.stderr().includes(message));
+  assert.ok(environment.stdout().includes(message));
+});
+
+test("friendly catalog labels never block exact widget actions on recoverable metadata failure", async () => {
+  const environment = setup({
+    isTTY: true,
+    prompts: async () => ({
+      select: async () => assert.fail("exact widget must not prompt"),
+      confirm: async () => true,
+      input: async () => "",
+      editor: async () => "",
+    }),
+  });
+  environment.controller.catalog = async () => {
+    throw new WidgetctlError("Unrelated descriptor invalid", {
+      code: "QUERY_FAILED",
+    });
+  };
+  assert.equal(
+    await runCli(
+      ["remove", "--device", udid, "--widget", icon],
+      environment.runtime,
+    ),
+    0,
+  );
+  assert.deepEqual(environment.calls, ["prepare", "remove", "release"]);
+});
+
+test("friendly name discovery still propagates ownership loss before an exact write", async () => {
+  const environment = setup({
+    isTTY: true,
+    prompts: async () => ({
+      select: async () => assert.fail("exact widget must not prompt"),
+      confirm: async () => true,
+      input: async () => "",
+      editor: async () => "",
+    }),
+  });
+  environment.controller.catalog = async () => {
+    throw new WidgetctlError("Ownership lost", { code: "OWNERSHIP_LOST" });
+  };
+  assert.equal(
+    await runCli(
+      ["remove", "--device", udid, "--widget", icon],
+      environment.runtime,
+    ),
+    1,
+  );
+  assert.deepEqual(environment.calls, ["prepare", "release"]);
 });

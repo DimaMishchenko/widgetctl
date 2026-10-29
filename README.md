@@ -22,9 +22,9 @@ Pin a reviewed commit with `github:DimaMishchenko/widgetctl#COMMIT_SHA` and comm
 npx --no-install widgetctl
 ```
 
-Choose an action, explicitly select your simulator, and confirm ownership before its UI restarts. Search installed apps, widget kinds and sizes, or choose an existing widget by exact identity and Home position. Guided mode keeps your selected simulator and helper ready between actions. Exit or change simulator to release it; Ctrl-C exits with cleanup. Explicit commands prepare and release automatically.
+Choose **Add widget**, **Edit widget**, or **Remove widget**. **More** contains browsing, installed widgets, details, import/export and diagnostics. Select your simulator and approve the session, including booting it if needed and briefly restarting its Home Screen. The session keeps that simulator ready; **Change simulator**, **Exit**, or Ctrl-C releases the helper.
 
-The editor stages parameter changes, shows a diff, and asks before saving. Advertised enum/entity choices retain their complete values. Optional fields offer explicit null or removal while preserving the difference between null and an absent parameter. Unsupported fields remain read only; unavailable choice discovery offers an explicit JSON fallback with its reason. Keep entity metadata when editing JSON.
+The editor shows current values and pending changes inline. **Save changes · N** applies the draft; **Back** asks before discarding unsaved changes. **Advanced…** offers raw JSON, explicit null and parameter removal. Use arrow keys for short lists and type to search longer lists. Set `NO_COLOR=1` to disable color or `WIDGETCTL_NO_EMOJI=1` for plain symbols.
 
 Check your setup without changing it:
 
