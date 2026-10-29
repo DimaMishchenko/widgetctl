@@ -65,7 +65,7 @@
     "@inquirer/select": "^5.2.8",
     "@modelcontextprotocol/server": "^2.4.0",
     "bplist-parser": "^0.3.2",
-    "plist": "^3.1.0",
+    "plist": "^5.0.0",
     "zod": "^4.6.7"
   },
   "peerDependencies": {
