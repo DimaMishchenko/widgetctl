@@ -46,7 +46,7 @@ test(
         timeout: 10000,
         killSignal: "SIGKILL",
       });
-      assert.equal(stdout.trim(), "native contracts: 8 checks passed");
+      assert.equal(stdout.trim(), "native contracts: 16 checks passed");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

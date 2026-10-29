@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createDiscovery } from "./discovery.js";
 import os from "node:os";
 import * as fs from "node:fs/promises";
 import {
@@ -19,6 +20,8 @@ import {
   homeIdentities,
   validateConfiguration,
   selectBootedDevice,
+  installedWidgets,
+  catalogFromResponse,
 } from "./backend-model.js";
 import {
   runtime,
@@ -32,6 +35,9 @@ import {
 export interface BackendOptions {
   udid: string;
   mode:
+    | "catalog"
+    | "installedWidgets"
+    | "configurationChoices"
     | "prepare"
     | "unload"
     | "inspect"
@@ -51,6 +57,9 @@ export interface BackendOptions {
   launchDomain?: string;
   stateDirectory?: string;
   configuration?: Dict;
+  expectedConfiguration?: Dict;
+  parameterKey?: string;
+  search?: string;
 }
 export interface BackendResult {
   status: string;
@@ -61,6 +70,9 @@ export function validateOptions(o: BackendOptions): string {
   if (!uuid(o.udid)) throw Error("UDID must be an explicit UUID");
   if (
     ![
+      "catalog",
+      "installedWidgets",
+      "configurationChoices",
       "prepare",
       "unload",
       "inspect",
@@ -93,7 +105,11 @@ export function validateOptions(o: BackendOptions): string {
     throw Error("Launch domain must be user/UID");
   if (o.architecture && !["arm64", "x86_64"].includes(o.architecture))
     throw Error("Unsupported simulator architecture");
-  if (["prepare", "unload", "inspect"].includes(o.mode)) {
+  if (
+    ["prepare", "unload", "inspect", "catalog", "installedWidgets"].includes(
+      o.mode,
+    )
+  ) {
     if (o.extension || o.kind || o.size || o.container)
       throw Error(
         "Lifecycle and inspection operations accept only UDID and lifecycle options",
@@ -108,8 +124,31 @@ export function validateOptions(o: BackendOptions): string {
     throw Error(
       "Widget operations require extension, kind and small/medium/large size",
     );
-  if (o.configuration && o.mode !== "applyConfiguration")
-    throw Error("Configuration is accepted only for applyConfiguration");
+  if (
+    o.expectedConfiguration !== undefined &&
+    !["applyConfiguration", "configurationChoices"].includes(o.mode)
+  )
+    throw Error(
+      "expectedConfiguration is accepted only for configuration apply or choices",
+    );
+  if (
+    o.configuration &&
+    !["applyConfiguration", "configurationChoices"].includes(o.mode)
+  )
+    throw Error(
+      "Configuration is accepted only for configuration apply or choices",
+    );
+  if (o.mode === "configurationChoices") {
+    if (
+      typeof o.parameterKey !== "string" ||
+      !o.parameterKey ||
+      o.parameterKey.length > 256 ||
+      (o.search !== undefined &&
+        (typeof o.search !== "string" || o.search.length > 512))
+    )
+      throw Error("Entity choices require a bounded parameter key and search");
+  } else if (o.parameterKey !== undefined || o.search !== undefined)
+    throw Error("Entity query options apply only to configurationChoices");
   return o.udid.toUpperCase();
 }
 export function createBackend(
@@ -289,11 +328,15 @@ export function createBackend(
             springboard_pid: next,
           });
         }
+        if (o.mode === "installedWidgets") {
+          const [persisted] = await r.loadIconstate(paths);
+          return finish("listed", { widgets: installedWidgets(persisted) });
+        }
         await removeSessionFile("command.json");
         let existing: Dict = { iconLists: [] },
           existingMatches: Dict[] = [],
           ids: Target | null = null;
-        if (!["inspect", "prepare"].includes(o.mode)) {
+        if (!["inspect", "prepare", "catalog"].includes(o.mode)) {
           [existing] = await r.loadIconstate(paths);
           existingMatches = verifyIconstate(
             existing,
@@ -319,7 +362,11 @@ export function createBackend(
                 "Multiple Home widgets already match this kind and size; no widget command sent",
             });
           if (
-            ["exportConfiguration", "applyConfiguration"].includes(o.mode) &&
+            [
+              "exportConfiguration",
+              "applyConfiguration",
+              "configurationChoices",
+            ].includes(o.mode) &&
             !existingMatches.length
           )
             throw Error(
@@ -350,7 +397,13 @@ export function createBackend(
           out.replaced_identifiers = replaced;
         }
         let configBindings: Dict | null = null;
-        if (["exportConfiguration", "applyConfiguration"].includes(o.mode)) {
+        if (
+          [
+            "exportConfiguration",
+            "applyConfiguration",
+            "configurationChoices",
+          ].includes(o.mode)
+        ) {
           const container = existingMatches[0]!.containerBundleIdentifier;
           if (
             typeof container !== "string" ||
@@ -368,8 +421,15 @@ export function createBackend(
             size: o.size,
             ...ids,
           };
-          if (o.mode === "applyConfiguration")
-            validateConfiguration(o.configuration, configBindings);
+          if (["applyConfiguration", "configurationChoices"].includes(o.mode)) {
+            if (
+              o.configuration !== undefined ||
+              o.mode === "applyConfiguration"
+            )
+              validateConfiguration(o.configuration, configBindings);
+            if (o.expectedConfiguration !== undefined)
+              validateConfiguration(o.expectedConfiguration, configBindings);
+          }
         }
         const preparing = r.now();
         const preparation = await Promise.allSettled([
@@ -512,7 +572,7 @@ export function createBackend(
         if (o.position && ids) payload.position = o.position;
         if (o.iconIdentifier && o.mode === "inspect")
           payload.iconIdentifier = o.iconIdentifier;
-        if (o.mode !== "inspect")
+        if (!["inspect", "catalog"].includes(o.mode))
           Object.assign(payload, {
             extension: o.extension,
             kind: o.kind,
@@ -520,8 +580,16 @@ export function createBackend(
           });
         if (o.container) payload.container = o.container;
         if (configBindings) Object.assign(payload, configBindings);
-        if (o.mode === "applyConfiguration")
+        if (["applyConfiguration", "configurationChoices"].includes(o.mode)) {
           payload.configuration = o.configuration;
+          if (o.expectedConfiguration !== undefined)
+            payload.expectedConfiguration = o.expectedConfiguration;
+        }
+        if (o.mode === "configurationChoices")
+          Object.assign(payload, {
+            key: o.parameterKey,
+            search: o.search ?? "",
+          });
         const [response, elapsed] = await r.requestWorker(
           session,
           live,
@@ -532,6 +600,12 @@ export function createBackend(
         out.timings.command_seconds = elapsed;
         if (response.status === "error")
           return finish("worker_rejected", { error: response.error });
+        if (o.mode === "catalog") {
+          const apps = await createDiscovery(r.command).listApplications(udid);
+          return finish("catalogued", {
+            catalog: catalogFromResponse(response, apps),
+          });
+        }
         if (o.mode === "applyConfiguration") {
           if (
             response.status !== "configuration_applied" ||
@@ -601,6 +675,42 @@ export function createBackend(
             ),
           });
         }
+        if (o.mode === "configurationChoices") {
+          if (
+            response.status !== "configuration_choices" ||
+            response.widgetIdentityVerified !== true ||
+            !Array.isArray(response.choices) ||
+            response.choices.length > 1000
+          )
+            throw Error(
+              "Worker did not return bounded verified entity choices",
+            );
+          const seen = new Set<string>();
+          for (const choice of response.choices) {
+            if (
+              !object(choice) ||
+              typeof choice.label !== "string" ||
+              !choice.label.trim() ||
+              !Object.hasOwn(choice, "value")
+            )
+              throw Error("Invalid entity choice");
+            const encoded = JSON.stringify(choice.value);
+            if (seen.has(encoded)) throw Error("Duplicate entity choice");
+            seen.add(encoded);
+          }
+          const [current] = await r.loadIconstate(paths);
+          const changed = preservation(existing, current);
+          if (changed) throw Error(changed);
+          const matches = verifyIconstate(
+            current,
+            o.extension!,
+            o.kind!,
+            o.size!,
+          ).filter((v) => v.displayIdentifier === ids!.iconIdentifier);
+          if (matches.length !== 1 || !equal(persistedTarget(matches[0]!), ids))
+            throw Error("Entity query target changed");
+          return finish("configuration_choices", { choices: response.choices });
+        }
         if (o.mode === "exportConfiguration") {
           if (
             response.status !== "configuration_exported" ||
@@ -631,7 +741,10 @@ export function createBackend(
             );
           const changed = preservation(existing, current);
           if (changed) throw Error(changed);
-          return finish("configuration_exported", { configuration });
+          return finish("configuration_exported", {
+            configuration,
+            numberFormat: response.numberFormat,
+          });
         }
         if (o.mode === "inspect") {
           if (response.status !== "inspected" || !object(response.inspection))

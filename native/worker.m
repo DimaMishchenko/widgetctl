@@ -9,16 +9,25 @@ static id objectMessage(id receiver, const char *selectorName) {
     char resultType[16] = {0};
     if (method) method_getReturnType(method, resultType, sizeof(resultType));
     if (!method || method_getNumberOfArguments(method) != 2 || resultType[0] != '@') {
-        [NSException raise:@"UnavailableABI" format:@"%@ does not implement %s as an object getter", receiver, selectorName];
+        [NSException raise:@"UnavailableABI" format:@"%@ does not implement %s as an object getter", NSStringFromClass(object_getClass(receiver)), selectorName];
     }
     return ((id (*)(id, SEL))objc_msgSend)(receiver, selector);
 }
 
 static void saveJSON(NSDictionary *value, NSString *path) {
-    NSError *error = nil;
-    NSData *data = [NSJSONSerialization dataWithJSONObject:value options:0 error:&error];
-    if (!data || ![data writeToFile:path options:NSDataWritingAtomic error:&error]) {
-        NSLog(@"SimulatorWidgets cannot write %@: %@", path, error);
+    @try {
+        NSError *error = nil;
+        NSDictionary *output = value;
+        if (![NSJSONSerialization isValidJSONObject:value]) {
+            NSMutableDictionary *failure = [@{@"status": @"error", @"error": @"Worker response contains unsupported non-JSON data", @"pid": @(getpid())} mutableCopy];
+            if ([value[@"nonce"] isKindOfClass:NSString.class]) failure[@"nonce"] = value[@"nonce"];
+            output = failure;
+        }
+        NSData *data = [NSJSONSerialization dataWithJSONObject:output options:0 error:&error];
+        if (!data || ![data writeToFile:path options:NSDataWritingAtomic error:&error])
+            NSLog(@"SimulatorWidgets cannot write %@: %@", path, error);
+    } @catch (NSException *exception) {
+        NSLog(@"SimulatorWidgets cannot serialize response: %@", exception.name);
     }
 }
 
@@ -34,7 +43,7 @@ static SEL requireMethod(id receiver, const char *name, const char *encoding) {
     SEL selector = sel_registerName(name);
     Method method = class_getInstanceMethod(object_getClass(receiver), selector);
     if (!method || strcmp(method_getTypeEncoding(method), encoding) != 0) {
-        [NSException raise:@"UnavailableABI" format:@"%@ does not implement %s with expected ABI %s", receiver, name, encoding];
+        [NSException raise:@"UnavailableABI" format:@"%@ does not implement %s with expected ABI %s", NSStringFromClass(object_getClass(receiver)), name, encoding];
     }
     return selector;
 }
@@ -84,13 +93,23 @@ static id containingHomeList(id manager, id icon) {
     return list;
 }
 
+static SEL widgetRemovalSelector(id manager) {
+    const char *modern = "removeIcon:options:undoActionName:completion:";
+    if ([manager respondsToSelector:sel_registerName(modern)])
+        return requireMethod(manager, modern, "v48@0:8@16Q24@32@?40");
+    return requireMethod(manager, "removeIcon:options:completion:", "v40@0:8@16Q24@?32");
+}
+
 static void operateExistingWidget(NSDictionary *command, NSMutableDictionary *response) {
     id controller = objectMessage(NSClassFromString(@"SBIconController"), "sharedInstance");
     id manager = objectMessage(controller, "iconManager");
     id icon = validatedWidgetIcon(manager, command, response);
     if ([requiredString(command, @"mode") isEqual:@"remove"]) {
-        SEL selector = requireMethod(manager, "removeIcon:options:undoActionName:completion:", "v48@0:8@16Q24@32@?40");
-        ((void (*)(id, SEL, id, unsigned long long, id, id))objc_msgSend)(manager, selector, icon, 0, nil, nil);
+        SEL selector = widgetRemovalSelector(manager);
+        if (selector == sel_registerName("removeIcon:options:undoActionName:completion:"))
+            ((void (*)(id, SEL, id, unsigned long long, id, id))objc_msgSend)(manager, selector, icon, 0, nil, nil);
+        else
+            ((void (*)(id, SEL, id, unsigned long long, id))objc_msgSend)(manager, selector, icon, 0, nil);
         response[@"status"] = @"removal_submitted";
         response[@"action"] = @"remove";
     } else if ([requiredString(command, @"mode") isEqual:@"ensure"]) {
@@ -196,7 +215,7 @@ static void validateExistingWidgets(NSDictionary *command, NSMutableDictionary *
     }
     NSMutableDictionary *desiredDetails = [desired mutableCopy];
     descriptorForWidget(manager, desired, desiredDetails);
-    requireMethod(manager, "removeIcon:options:undoActionName:completion:", "v48@0:8@16Q24@32@?40");
+    widgetRemovalSelector(manager);
     response[@"desired"] = desiredDetails;
     NSMutableArray *validated = NSMutableArray.array;
     for (id target in targets) {
@@ -278,6 +297,10 @@ static void exportConfiguration(NSDictionary *command, NSMutableDictionary *resp
     NSDictionary *candidate = current;
     BOOL apply = [requiredString(command, @"mode") isEqual:@"applyConfiguration"];
     if (apply) {
+        id expected = command[@"expectedConfiguration"];
+        if (expected && (![expected isKindOfClass:NSDictionary.class] ||
+            ![canonicalJSON(expected[@"intent"]) isEqual:canonicalJSON(current)]))
+            [NSException raise:@"StaleConfiguration" format:@"Widget configuration changed since editing began; reload before saving"];
         id envelope = command[@"configuration"];
         if (![envelope isKindOfClass:NSDictionary.class]) {
             [NSException raise:@"InvalidConfiguration" format:@"Configuration envelope must be a dictionary"];
@@ -335,6 +358,7 @@ static void exportConfiguration(NSDictionary *command, NSMutableDictionary *resp
         envelope[key] = requiredString(command, key);
     }
     response[@"configuration"] = envelope;
+    response[@"numberFormat"] = @{@"locale": NSLocale.currentLocale.localeIdentifier, @"decimalSeparator": [NSLocale.currentLocale objectForKey:NSLocaleDecimalSeparator]};
     response[@"roundtripVerified"] = @YES;
     response[@"roundtrip"] = roundtrip;
     NSMutableDictionary *identifiers = NSMutableDictionary.dictionary;
@@ -374,6 +398,216 @@ static void exportConfiguration(NSDictionary *command, NSMutableDictionary *resp
     }
     response[@"representations"] = representations;
     response[@"status"] = @"configuration_exported";
+}
+
+typedef id __attribute__((ns_returns_retained)) (*ChoicesInitOne)(id __attribute__((ns_consumed)), SEL, id);
+typedef id __attribute__((ns_returns_retained)) (*ChoicesInitTwo)(id __attribute__((ns_consumed)), SEL, id, id);
+typedef id __attribute__((ns_returns_retained)) (*ChoicesInitThree)(id __attribute__((ns_consumed)), SEL, id, id, id);
+
+static id installedActionMetadata(NSDictionary *canonical, NSString *__autoreleasing *queryBundle) {
+    id provider = [NSClassFromString(@"LNMetadataProvider") new];
+    SEL selector = requireMethod(provider, "actionForBundleIdentifier:andActionIdentifier:error:", "@40@0:8@16@24^@32");
+    NSString *bundle = canonical[@"extensionBundleIdentifier"];
+    NSError *error = nil;
+    id metadata = ((id (*)(id, SEL, id, id, NSError *__autoreleasing *))objc_msgSend)(provider, selector, bundle, canonical[@"appIntentIdentifier"], &error);
+    if (!metadata) {
+        bundle = canonical[@"appBundleIdentifier"];
+        error = nil;
+        metadata = ((id (*)(id, SEL, id, id, NSError *__autoreleasing *))objc_msgSend)(provider, selector, bundle, canonical[@"appIntentIdentifier"], &error);
+    }
+    if (!metadata) [NSException raise:@"UnsupportedConfigurationMetadata" format:@"Exact widget action metadata unavailable in extension or container: %@", error];
+    requireMethod(metadata, "identifier", "@16@0:8");
+    if (![objectMessage(metadata, "identifier") isEqual:canonical[@"appIntentIdentifier"]])
+        [NSException raise:@"InvalidConfigurationMetadata" format:@"Native action metadata does not match the exact intent identifier"];
+    if (queryBundle) *queryBundle = bundle;
+    return metadata;
+}
+
+static id choicesCanonicalValue(id action, id metadata, id value, NSString *key, NSString *container, BOOL collection) {
+    if (collection) {
+        requireMethod(value, "valueType", "@16@0:8");
+        id memberType = objectMessage(value, "valueType");
+        id allocation = [NSClassFromString(@"LNValue") alloc];
+        SEL initializer = requireMethod(allocation, "initWithValues:memberValueType:", "@32@0:8@16@24");
+        value = ((ChoicesInitTwo)objc_msgSend)(allocation, initializer, @[value], memberType);
+    }
+    id parameterAllocation = [NSClassFromString(@"LNParameter") alloc];
+    SEL parameterInit = requireMethod(parameterAllocation, "initWithIdentifier:value:", "@32@0:8@16@24");
+    id parameter = ((ChoicesInitTwo)objc_msgSend)(parameterAllocation, parameterInit, key, value);
+    SEL merge = requireMethod(action, "actionWithByMergingParameters:", "@24@0:8@16");
+    id candidate = ((id (*)(id, SEL, id))objc_msgSend)(action, merge, @[parameter]);
+    id intentAllocation = [NSClassFromString(@"INAppIntent") alloc];
+    SEL intentInit = requireMethod(intentAllocation, "initWithAppBundleIdentifier:linkAction:linkActionMetadata:", "@40@0:8@16@24@32");
+    id detached = ((ChoicesInitThree)objc_msgSend)(intentAllocation, intentInit, container, candidate, metadata);
+    requireMethod(detached, "serializedParameters", "@16@0:8");
+    id parameters = objectMessage(detached, "serializedParameters");
+    if (![parameters isKindOfClass:NSDictionary.class] || !parameters[key] || ![NSJSONSerialization isValidJSONObject:parameters])
+        [NSException raise:@"UnsupportedChoiceSerialization" format:@"Native option cannot be represented as canonical configuration JSON"];
+    id serialized = parameters[key];
+    if (collection && [serialized isKindOfClass:NSArray.class]) {
+        if ([serialized count] != 1)
+            [NSException raise:@"UnsupportedChoiceSerialization" format:@"Native entity collection option has unsupported cardinality"];
+        serialized = serialized[0];
+    }
+    if (collection && ![serialized isKindOfClass:NSDictionary.class])
+        [NSException raise:@"UnsupportedChoiceSerialization" format:@"Native entity collection option has unsupported canonical value type"];
+    NSData *data = canonicalJSON(@[serialized]);
+    if (data.length > 256 * 1024)
+        [NSException raise:@"ChoiceTooLarge" format:@"Native option exceeds the supported JSON size"];
+    return [NSJSONSerialization JSONObjectWithData:data options:0 error:nil][0];
+}
+
+static void startConfigurationChoices(NSDictionary *command, NSMutableDictionary *response, void (^completion)(void)) {
+    __block BOOL finished = NO;
+    __block id ownedConnection = nil;
+    void (^finish)(NSString *) = ^(NSString *error) {
+        if (finished) return;
+        finished = YES;
+        if (error) {
+            response[@"status"] = @"error";
+            response[@"error"] = error;
+        }
+        if (ownedConnection && object_getClass(ownedConnection) != NSClassFromString(@"LNConnectionProxy")) {
+            @try {
+                SEL close = requireMethod(ownedConnection, "close", "v16@0:8");
+                ((void (*)(id, SEL))objc_msgSend)(ownedConnection, close);
+            } @catch (NSException *exception) {
+                response[@"status"] = @"error";
+                response[@"error"] = exception.description;
+            }
+        }
+        ownedConnection = nil;
+        completion();
+    };
+    @try {
+        NSString *key = requiredString(command, @"key");
+        id search = command[@"search"];
+        if (key.length > 256 || (search && (![search isKindOfClass:NSString.class] || [search length] > 512)))
+            [NSException raise:@"InvalidChoiceRequest" format:@"Parameter key or search exceeds the supported bounds"];
+        if (search && ![search length]) search = nil;
+        id controller = objectMessage(NSClassFromString(@"SBIconController"), "sharedInstance");
+        id manager = objectMessage(controller, "iconManager");
+        id icon = validatedWidgetIcon(manager, command, response);
+        id widget = objectMessage(icon, "activeWidget");
+        SEL intentSelector = requireMethod(manager, "intentForWidget:ofIcon:", "@32@0:8@16@24");
+        id intent = ((id (*)(id, SEL, id, id))objc_msgSend)(manager, intentSelector, widget, icon);
+        NSDictionary *canonical = canonicalIntent(intent);
+        NSString *extension = requiredString(command, @"extension");
+        NSString *container = requiredString(command, @"container");
+        if (![canonical[@"extensionBundleIdentifier"] isEqual:extension] || ![canonical[@"appBundleIdentifier"] isEqual:container])
+            [NSException raise:@"ConfigurationIdentityMismatch" format:@"Live intent differs from the targeted app or extension"];
+        id expected = command[@"expectedConfiguration"];
+        if (expected && (![expected isKindOfClass:NSDictionary.class] || ![canonicalJSON(expected[@"intent"]) isEqual:canonicalJSON(canonical)]))
+            [NSException raise:@"StaleConfiguration" format:@"Widget configuration changed before querying options"];
+        id staged = command[@"configuration"];
+        if (staged) {
+            if (![staged isKindOfClass:NSDictionary.class] || ![staged[@"schemaVersion"] isEqual:@1])
+                [NSException raise:@"InvalidChoiceConfiguration" format:@"Staged query requires a full schemaVersion 1 configuration"];
+            for (NSString *field in @[@"extension", @"container", @"kind", @"size", @"iconIdentifier", @"widgetIdentifier"])
+                if (![staged[field] isEqual:command[field]])
+                    [NSException raise:@"ChoiceConfigurationMismatch" format:@"Staged query %@ differs from the live widget", field];
+            id candidate = staged[@"intent"];
+            if (![candidate isKindOfClass:NSDictionary.class] || [candidate count] != canonical.count || ![candidate[@"parameters"] isKindOfClass:NSDictionary.class] || ![NSJSONSerialization isValidJSONObject:candidate])
+                [NSException raise:@"InvalidChoiceConfiguration" format:@"Staged query requires a complete canonical intent envelope"];
+            for (NSString *field in canonical)
+                if (![field isEqual:@"parameters"] && ![candidate[field] isEqual:canonical[field]])
+                    [NSException raise:@"ChoiceConfigurationMismatch" format:@"Staged query intent %@ differs from the live intent", field];
+            intent = reconstructedIntent(candidate);
+            if (![canonicalJSON(canonicalIntent(intent)) isEqual:canonicalJSON(candidate)])
+                [NSException raise:@"UnsupportedChoiceConfiguration" format:@"Staged query does not survive native canonical reconstruction"];
+        }
+        requireMethod(intent, "linkAction", "@16@0:8");
+        id action = objectMessage(intent, "linkAction");
+        if (!action) [NSException raise:@"UnsupportedChoices" format:@"Current intent has no native Link action"];
+        NSString *queryBundle = nil;
+        id metadata = installedActionMetadata(canonical, &queryBundle);
+        response[@"queryMetadataBundle"] = queryBundle;
+        requireMethod(metadata, "nameIndexedParameters", "@16@0:8");
+        id indexedParameters = objectMessage(metadata, "nameIndexedParameters");
+        if (![indexedParameters isKindOfClass:NSDictionary.class] || !indexedParameters[key])
+            [NSException raise:@"UnsupportedChoiceParameter" format:@"No exact native metadata for parameter %@", key];
+        id parameterMetadata = indexedParameters[key];
+        requireMethod(parameterMetadata, "valueType", "@16@0:8");
+        id valueType = objectMessage(parameterMetadata, "valueType");
+        BOOL collection = [valueType isKindOfClass:NSClassFromString(@"LNArrayValueType")];
+        if (collection) {
+            requireMethod(valueType, "memberValueType", "@16@0:8");
+            valueType = objectMessage(valueType, "memberValueType");
+        }
+        if (![valueType isKindOfClass:NSClassFromString(@"LNEntityValueType")])
+            [NSException raise:@"UnsupportedChoiceParameter" format:@"Native option lookup requires an entity or entity-array field"];
+        Class connectionClass = NSClassFromString([queryBundle isEqual:container] ? @"LNApplicationConnection" : @"LNExtensionConnection");
+        id connectionAllocation = [connectionClass alloc];
+        SEL connectionInitializer = requireMethod(connectionAllocation, "initWithBundleIdentifier:", "@24@0:8@16");
+        ownedConnection = ((ChoicesInitOne)objc_msgSend)(connectionAllocation, connectionInitializer, queryBundle);
+        if (!ownedConnection) [NSException raise:@"UnsupportedChoices" format:@"Cannot connect to the exact widget metadata bundle"];
+        id connection = ownedConnection;
+        if (object_getClass(connection) == NSClassFromString(@"LNConnectionProxy")) {
+            requireMethod(connection, "connection", "@16@0:8");
+            connection = objectMessage(connection, "connection");
+        }
+        requireMethod(connection, "effectiveBundleIdentifier", "@16@0:8");
+        requireMethod(connection, "appBundleIdentifier", "@16@0:8");
+        id actualEffectiveBundle = objectMessage(connection, "effectiveBundleIdentifier");
+        requireMethod(actualEffectiveBundle, "bundleIdentifier", "@16@0:8");
+        if (![objectMessage(actualEffectiveBundle, "bundleIdentifier") isEqual:queryBundle] || ![objectMessage(connection, "appBundleIdentifier") isEqual:container])
+            [NSException raise:@"ChoiceConnectionMismatch" format:@"Native query connection differs from the targeted app or extension"];
+        SEL fetch = requireMethod(connection, "fetchOptionsForAction:actionMetadata:parameterMetadata:searchTerm:localeIdentifier:completionHandler:", "v64@0:8@16@24@32@40@48@?56");
+        void (^callback)(id, NSError *) = ^(id result, NSError *error) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (finished) return;
+                @try {
+                    if (error) { finish(error.description); return; }
+                    if (![result isKindOfClass:NSClassFromString(@"LNDynamicOptionsResult")])
+                        [NSException raise:@"InvalidChoices" format:@"Native query did not return a dynamic option result"];
+                    requireMethod(result, "sections", "@16@0:8");
+                    id sections = objectMessage(result, "sections");
+                    if (![sections isKindOfClass:NSArray.class] || [sections count] > 128)
+                        [NSException raise:@"InvalidChoices" format:@"Native option sections exceed the supported bounds"];
+                    NSMutableArray *choices = NSMutableArray.array;
+                    for (id section in sections) {
+                        requireMethod(section, "options", "@16@0:8");
+                        id options = objectMessage(section, "options");
+                        if (![options isKindOfClass:NSArray.class] || [options count] + choices.count > 128)
+                            [NSException raise:@"TooManyChoices" format:@"Native query exceeds 128 options; refine the search"];
+                        for (id option in options) {
+                            if (![option isKindOfClass:NSClassFromString(@"LNDynamicOption")])
+                                [NSException raise:@"InvalidChoices" format:@"Native query returned an unsupported option"];
+                            requireMethod(option, "title", "@16@0:8");
+                            requireMethod(option, "value", "@16@0:8");
+                            id value = objectMessage(option, "value");
+                            if (![value isKindOfClass:NSClassFromString(@"LNValue")])
+                                [NSException raise:@"InvalidChoiceValue" format:@"Native option has no typed Link value"];
+                            id title = objectMessage(option, "title");
+                            if (!title) {
+                                requireMethod(value, "displayRepresentation", "@16@0:8");
+                                id display = objectMessage(value, "displayRepresentation");
+                                if (display) {
+                                    requireMethod(display, "title", "@16@0:8");
+                                    title = objectMessage(display, "title");
+                                }
+                            }
+                            if ([title isKindOfClass:NSClassFromString(@"LNStaticDeferredLocalizedString")]) {
+                                SEL localize = requireMethod(title, "localizedStringForLocaleIdentifier:", "@24@0:8@16");
+                                title = ((id (*)(id, SEL, id))objc_msgSend)(title, localize, NSLocale.currentLocale.localeIdentifier);
+                            }
+                            if (![title isKindOfClass:NSString.class] || ![title length] || [title length] > 2048)
+                                [NSException raise:@"InvalidChoiceLabel" format:@"Native option has no supported localized display label (class %@)", NSStringFromClass(object_getClass(title))];
+                            id serialized = choicesCanonicalValue(action, metadata, value, key, container, collection);
+                            [choices addObject:@{@"label": title, @"value": serialized}];
+                        }
+                    }
+                    response[@"choices"] = choices;
+                    response[@"key"] = key;
+                    response[@"collection"] = @(collection);
+                    response[@"status"] = @"configuration_choices";
+                    finish(nil);
+                } @catch (NSException *exception) { finish(exception.description); }
+            });
+        };
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ finish(@"Native entity option query timed out after 10 seconds"); });
+        ((void (*)(id, SEL, id, id, id, id, id, id))objc_msgSend)(connection, fetch, action, metadata, parameterMetadata, search, NSLocale.currentLocale.localeIdentifier, callback);
+    } @catch (NSException *exception) { finish(exception.description); }
 }
 
 static NSArray *relevantMethods(Class inspectedClass, BOOL includeIcons) {
@@ -417,6 +651,44 @@ static id optionalObjectGetter(id receiver, const char *name) {
 static NSDictionary *inspectObject(id object) {
     return @{@"class": NSStringFromClass([object class]), @"methods": relevantMethods([object class], YES),
              @"description": [object description]};
+}
+
+static void catalogWidgets(NSMutableDictionary *response) {
+    id controller = objectMessage(NSClassFromString(@"SBIconController"), "sharedInstance");
+    id manager = objectMessage(controller, "iconManager");
+    id provider = objectMessage(manager, "widgetExtensionProvider");
+    id descriptors = objectMessage(provider, "sbh_descriptorsByExtensionIdentifier");
+    if (![descriptors isKindOfClass:NSDictionary.class])
+        [NSException raise:@"InvalidCatalog" format:@"Widget provider did not return a descriptor dictionary"];
+    NSMutableArray *widgets = NSMutableArray.array;
+    for (id extension in descriptors) {
+        if (![extension isKindOfClass:NSString.class] || ![extension length])
+            [NSException raise:@"InvalidCatalog" format:@"Invalid extension identifier"];
+        id candidates = descriptors[extension];
+        if (![candidates conformsToProtocol:@protocol(NSFastEnumeration)])
+            [NSException raise:@"InvalidCatalog" format:@"Invalid descriptor collection"];
+        for (id descriptor in candidates) {
+            SEL families = requireMethod(descriptor, "supportedFamilies", "Q16@0:8");
+            unsigned long mask = ((unsigned long (*)(id, SEL))objc_msgSend)(descriptor, families);
+            NSMutableArray *sizes = NSMutableArray.array;
+            for (NSNumber *family in @[@1, @2, @3])
+                if (mask & (1UL << family.unsignedLongValue))
+                    [sizes addObject:@{@1: @"small", @2: @"medium", @3: @"large"}[family]];
+            if (!sizes.count) continue;
+            id actualExtension = objectMessage(descriptor, "extensionBundleIdentifier");
+            id container = objectMessage(descriptor, "containerBundleIdentifier");
+            id kind = objectMessage(descriptor, "kind");
+            if (![actualExtension isEqual:extension] || ![container isKindOfClass:NSString.class] ||
+                ![container length] || ![kind isKindOfClass:NSString.class] || ![kind length])
+                [NSException raise:@"InvalidCatalog" format:@"Invalid widget descriptor identity"];
+            NSMutableDictionary *entry = [@{@"extension": extension, @"container": container, @"kind": kind, @"sizes": sizes} mutableCopy];
+            id name = optionalObjectGetter(descriptor, "sbh_widgetName");
+            if ([name isKindOfClass:NSString.class] && [name length]) entry[@"name"] = name;
+            [widgets addObject:entry];
+        }
+    }
+    response[@"widgets"] = widgets;
+    response[@"status"] = @"catalogued";
 }
 
 static void inspectRuntime(NSDictionary *command, NSMutableDictionary *response) {
@@ -517,7 +789,18 @@ static void tick(NSString *directory, NSString *udid, NSString *identity) {
                 ![worker[@"identity"] isEqual:identity] || ![worker[@"udid"] isEqual:udid]) {
                 [NSException raise:@"WorkerGenerationMismatch" format:@"Command does not match this worker PID, identity and simulator"];
             }
-            if ([command[@"mode"] isEqual:@"exportConfiguration"] || [command[@"mode"] isEqual:@"applyConfiguration"]) {
+            if ([command[@"mode"] isEqual:@"configurationChoices"]) {
+                startConfigurationChoices(command,response,^{
+                    NSData *latestData = [NSData dataWithContentsOfFile:[directory stringByAppendingPathComponent:@"command.json"]];
+                    id latest = latestData ? [NSJSONSerialization JSONObjectWithData:latestData options:0 error:nil] : nil;
+                    if (![latest isKindOfClass:NSDictionary.class] || ![latest[@"nonce"] isEqual:nonce]) return;
+                    response[@"callMilliseconds"] = @((CFAbsoluteTimeGetCurrent()-started)*1000);
+                    saveJSON(response,[directory stringByAppendingPathComponent:@"response.json"]);
+                });
+                return;
+            } else if ([command[@"mode"] isEqual:@"catalog"]) {
+                catalogWidgets(response);
+            } else if ([command[@"mode"] isEqual:@"exportConfiguration"] || [command[@"mode"] isEqual:@"applyConfiguration"]) {
                 exportConfiguration(command, response);
             } else if ([requiredString(command, @"mode") isEqualToString:@"validate"]) {
                 validateExistingWidgets(command, response);

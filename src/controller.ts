@@ -1,5 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
+  describeFromMetadata,
+  readConfigurationMetadata,
+  type ConfigurationDescription,
+} from "./configuration.js";
+import {
   runOperation,
   type BackendOptions,
   type BackendResult,
@@ -30,6 +35,26 @@ export interface WidgetTarget {
   container?: string;
   iconIdentifier?: string;
 }
+export interface WidgetCatalog {
+  apps: {
+    bundleIdentifier: string;
+    name: string;
+    widgets: {
+      name?: string;
+      target: { extension: string; container: string; kind: string };
+      sizes: WidgetSize[];
+    }[];
+  }[];
+}
+export interface InstalledWidget {
+  name?: string;
+  target: WidgetTarget & { container: string; iconIdentifier: string };
+  widgetIdentifier: string;
+  position?: { page: number; index: number };
+}
+export interface ApplyConfigurationOptions {
+  expected?: WidgetConfiguration;
+}
 export interface EnsureOptions {
   exclusive?: boolean;
   replace?: boolean;
@@ -54,6 +79,9 @@ export class WidgetctlError extends Error {
   }
 }
 const successful: Record<BackendOptions["mode"], string> = {
+  catalog: "catalogued",
+  installedWidgets: "listed",
+  configurationChoices: "configuration_choices",
   prepare: "ready",
   unload: "unloaded",
   inspect: "inspected",
@@ -119,7 +147,10 @@ function configuration(
     config.size !== target.size ||
     typeof config.container !== "string" ||
     !config.container ||
-    (target.container && config.container !== target.container)
+    (target.container && config.container !== target.container) ||
+    (target.iconIdentifier &&
+      config.iconIdentifier !== undefined &&
+      config.iconIdentifier !== target.iconIdentifier)
   )
     throw new WidgetctlError(
       "Configuration envelope does not match the target widget",
@@ -177,6 +208,11 @@ function validateTarget(target: WidgetTarget): WidgetTarget {
     ...(target.iconIdentifier ? { iconIdentifier: target.iconIdentifier } : {}),
   };
 }
+export interface ConfigurationChoicesOptions {
+  configuration?: WidgetConfiguration;
+  expected?: WidgetConfiguration;
+  signal?: AbortSignal;
+}
 export interface WidgetHandle {
   readonly target: Readonly<WidgetTarget>;
   readonly iconIdentifier: string;
@@ -185,14 +221,24 @@ export interface WidgetHandle {
   updateConfiguration(
     mutator: (parameters: Record<string, JsonValue>) => void | Promise<void>,
   ): Promise<WidgetConfiguration>;
+  describeConfiguration(): Promise<ConfigurationDescription>;
+  configurationChoices(
+    key: string,
+    search?: string,
+    options?: ConfigurationChoicesOptions,
+  ): Promise<{ label: string; value: JsonValue }[]>;
   remove(): Promise<BackendResult>;
   exportConfiguration(): Promise<WidgetConfiguration>;
   applyConfiguration(
     configuration: WidgetConfiguration,
+    options?: ApplyConfigurationOptions,
   ): Promise<WidgetConfiguration>;
 }
 export interface WidgetController {
   readonly udid: string;
+  catalog(): Promise<WidgetCatalog>;
+  installedWidgets(): Promise<InstalledWidget[]>;
+  getWidget(iconIdentifier: string): Promise<WidgetHandle>;
   prepare(): Promise<BackendResult>;
   release(): Promise<BackendResult>;
   inspect(): Promise<BackendResult>;
@@ -201,6 +247,7 @@ export interface WidgetController {
   applyConfiguration(
     target: WidgetTarget,
     configuration: WidgetConfiguration,
+    options?: ApplyConfigurationOptions,
   ): Promise<WidgetConfiguration>;
 }
 export function createController(
@@ -208,6 +255,7 @@ export function createController(
   runOperationBackend: (
     options: BackendOptions,
   ) => Promise<BackendResult> = runOperation,
+  metadataReader = readConfigurationMetadata,
 ): WidgetController {
   if (typeof options.udid !== "string" || !options.udid.trim())
     throw new WidgetctlError("An explicit simulator UDID is required");
@@ -286,33 +334,218 @@ export function createController(
   const applyConfig = async (
     target: WidgetTarget,
     value: WidgetConfiguration,
+    expected?: WidgetConfiguration,
   ) =>
     configuration(
       (
         await run("applyConfiguration", {
           ...target,
           configuration: value,
+          ...(expected ? { expectedConfiguration: expected } : {}),
         })
       ).configuration,
       target,
     );
+  const bindHandle = (
+    target: WidgetTarget,
+    iconIdentifier: string,
+  ): WidgetHandle => {
+    const bound = Object.freeze({ ...target, iconIdentifier });
+    return Object.freeze({
+      target: bound,
+      iconIdentifier,
+      reveal: () =>
+        serialize(() => run("ensure", { ...bound, position: "top" })),
+      parameters: () =>
+        serialize(async () => (await exportConfig(bound)).intent.parameters),
+      exportConfiguration: () => serialize(() => exportConfig(bound)),
+      describeConfiguration: () =>
+        serialize(async () => {
+          const result = await run("exportConfiguration", bound);
+          const value = configuration(result.configuration, bound);
+          let metadata: unknown;
+          try {
+            metadata = await metadataReader(settings.udid, value);
+          } catch {
+            metadata = undefined;
+          }
+          return describeFromMetadata(value, metadata, result.numberFormat);
+        }),
+      configurationChoices: (
+        key: string,
+        search = "",
+        options: ConfigurationChoicesOptions = {},
+      ) =>
+        snapshotAndSerialize(
+          () => {
+            if (
+              typeof key !== "string" ||
+              !key ||
+              key.length > 256 ||
+              typeof search !== "string" ||
+              search.length > 512
+            )
+              throw new WidgetctlError(
+                "Entity choices require a parameter key of at most 256 characters and a search of at most 512 characters",
+              );
+            return {
+              key,
+              search,
+              signal: options.signal,
+              draft:
+                options.configuration === undefined
+                  ? undefined
+                  : configuration(options.configuration, bound),
+              expected:
+                options.expected === undefined
+                  ? undefined
+                  : configuration(options.expected, bound),
+            };
+          },
+          async ({ key, search, draft, expected, signal }) => {
+            signal?.throwIfAborted();
+            const current = expected ?? (await exportConfig(bound));
+            signal?.throwIfAborted();
+            if (
+              draft &&
+              draft.intent.appIntentIdentifier !==
+                current.intent.appIntentIdentifier
+            )
+              throw new WidgetctlError(
+                "Entity query draft must keep the current intent identifier",
+              );
+            signal?.throwIfAborted();
+            const result = await run("configurationChoices", {
+              ...bound,
+              parameterKey: key,
+              search,
+              configuration: draft ?? current,
+              expectedConfiguration: expected ?? current,
+            });
+            return structuredClone(result.choices) as {
+              label: string;
+              value: JsonValue;
+            }[];
+          },
+        ),
+      applyConfiguration: (
+        value: WidgetConfiguration,
+        options: ApplyConfigurationOptions = {},
+      ) =>
+        snapshotAndSerialize(
+          () => ({
+            value: configuration(value, bound),
+            expected:
+              options.expected === undefined
+                ? undefined
+                : configuration(options.expected, bound),
+          }),
+          ({ value, expected }) => applyConfig(bound, value, expected),
+        ),
+      updateConfiguration: (
+        mutator: (
+          parameters: Record<string, JsonValue>,
+        ) => void | Promise<void>,
+      ) =>
+        serialize(async () => {
+          const current = await exportConfig(bound);
+          const expected = structuredClone(current);
+          const context = { active: true };
+          await mutatorContext.run(context, async () => {
+            try {
+              await mutator(current.intent.parameters);
+            } finally {
+              context.active = false;
+            }
+          });
+          return applyConfig(bound, configuration(current, bound), expected);
+        }),
+      remove: () => serialize(() => run("remove", bound)),
+    });
+  };
+  const listInstalled = async (): Promise<InstalledWidget[]> => {
+    const result = await run("installedWidgets");
+    if (!Array.isArray(result.widgets))
+      throw new WidgetctlError("Backend did not return installed widgets", {
+        result,
+      });
+    const seen = new Set<string>();
+    const widgetIds = new Set<string>();
+    return result.widgets.map((widget: InstalledWidget) => {
+      const target = validateTarget(widget?.target);
+      if (
+        !target.iconIdentifier ||
+        !target.container ||
+        typeof widget.widgetIdentifier !== "string" ||
+        !widget.widgetIdentifier ||
+        seen.has(target.iconIdentifier.toUpperCase()) ||
+        widgetIds.has(widget.widgetIdentifier.toUpperCase())
+      )
+        throw new WidgetctlError(
+          "Backend returned ambiguous installed widget identity",
+          { result },
+        );
+      seen.add(target.iconIdentifier.toUpperCase());
+      widgetIds.add(widget.widgetIdentifier.toUpperCase());
+      return structuredClone(widget);
+    });
+  };
   const controller: WidgetController = {
     udid: settings.udid,
+    catalog: () =>
+      serialize(async () => {
+        const result = await run("catalog");
+        if (!result.catalog || !Array.isArray(result.catalog.apps))
+          throw new WidgetctlError("Backend did not return a widget catalog", {
+            result,
+          });
+        return structuredClone(result.catalog) as WidgetCatalog;
+      }),
+    installedWidgets: () => serialize(listInstalled),
+    getWidget: (iconIdentifier) =>
+      snapshotAndSerialize(
+        () => {
+          if (typeof iconIdentifier !== "string" || !iconIdentifier.trim())
+            throw new WidgetctlError(
+              "An exact widget icon identifier is required",
+            );
+          return iconIdentifier.toUpperCase();
+        },
+        async (iconIdentifier) => {
+          const matches = (await listInstalled()).filter(
+            (widget) =>
+              widget.target.iconIdentifier.toUpperCase() === iconIdentifier,
+          );
+          if (matches.length !== 1)
+            throw new WidgetctlError(
+              "Widget icon identifier must match exactly one installed widget",
+            );
+          return bindHandle(
+            matches[0]!.target,
+            matches[0]!.target.iconIdentifier,
+          );
+        },
+      ),
     prepare: () => serialize(() => run("prepare")),
     release: () => serialize(() => run("unload")),
     inspect: () => serialize(() => run("inspect")),
     exportConfiguration: (target) =>
       snapshotAndSerialize(() => validateTarget(target), exportConfig),
-    applyConfiguration: (target, value) =>
+    applyConfiguration: (target, value, options = {}) =>
       snapshotAndSerialize(
         () => {
           const selected = validateTarget(target);
           return {
             target: selected,
             configuration: configuration(value, selected),
+            expected:
+              options.expected === undefined
+                ? undefined
+                : configuration(options.expected, selected),
           };
         },
-        ({ target, configuration }) => applyConfig(target, configuration),
+        ({ target, configuration, expected }) =>
+          applyConfig(target, configuration, expected),
       ),
     ensure: (input, ensureOptions = {}) =>
       snapshotAndSerialize(
@@ -339,44 +572,7 @@ export function createController(
               "Backend did not return an exact widget icon identifier",
               { result },
             );
-          const bound = Object.freeze({
-            ...target,
-            iconIdentifier: result.iconIdentifier,
-          });
-          return Object.freeze({
-            target: bound,
-            iconIdentifier: result.iconIdentifier,
-            reveal: () =>
-              serialize(() => run("ensure", { ...bound, position: "top" })),
-            parameters: () =>
-              serialize(
-                async () => (await exportConfig(bound)).intent.parameters,
-              ),
-            exportConfiguration: () => serialize(() => exportConfig(bound)),
-            applyConfiguration: (value: WidgetConfiguration) =>
-              snapshotAndSerialize(
-                () => configuration(value, bound),
-                (value) => applyConfig(bound, value),
-              ),
-            updateConfiguration: (
-              mutator: (
-                parameters: Record<string, JsonValue>,
-              ) => void | Promise<void>,
-            ) =>
-              serialize(async () => {
-                const current = await exportConfig(bound);
-                const context = { active: true };
-                await mutatorContext.run(context, async () => {
-                  try {
-                    await mutator(current.intent.parameters);
-                  } finally {
-                    context.active = false;
-                  }
-                });
-                return applyConfig(bound, configuration(current, bound));
-              }),
-            remove: () => serialize(() => run("remove", bound)),
-          });
+          return bindHandle(target, result.iconIdentifier);
         },
       ),
   };

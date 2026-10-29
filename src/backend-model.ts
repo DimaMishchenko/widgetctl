@@ -3,7 +3,8 @@ export type Dict = Record<string, any>;
 export type Target = { iconIdentifier: string; widgetIdentifier: string };
 export const object = (v: unknown): v is Dict =>
   v !== null && typeof v === "object" && !Array.isArray(v);
-export const equal = isDeepStrictEqual;
+export const equal: (left: unknown, right: unknown) => boolean =
+  isDeepStrictEqual;
 export function uuid(v: unknown): v is string {
   return (
     typeof v === "string" &&
@@ -180,6 +181,8 @@ export function validateResponse(
     throw Error("Worker response does not match the injected SpringBoard PID");
   if (
     ![
+      "catalogued",
+      "configuration_choices",
       "submitted",
       "removal_submitted",
       "validated",
@@ -327,6 +330,7 @@ export function targetIdentity(
   const runtime = runtimes.runtimes.find((r: Dict) => r.identifier === ids[0]);
   if (
     !runtime ||
+    runtime.isAvailable === false ||
     !ids[0]!.startsWith("com.apple.CoreSimulator.SimRuntime.iOS-")
   )
     throw Error("Only iOS simulator runtimes are supported");
@@ -344,4 +348,133 @@ export function targetIdentity(
   )
     throw Error("Runtime version must be a numeric iOS version");
   return [`${architecture}-apple-ios${runtime.version}-simulator`, runtime];
+}
+
+const nonemptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0;
+const widgetSizes = ["small", "medium", "large"];
+
+export function catalogFromResponse(
+  response: Dict,
+  applications: { bundleIdentifier: string; name: string }[],
+): Dict {
+  if (response.status !== "catalogued" || !Array.isArray(response.widgets))
+    throw Error("Catalog command received an invalid worker response");
+  const apps = new Map<string, Dict>();
+  const names = new Map(
+    applications.map((app) => [app.bundleIdentifier, app.name]),
+  );
+  const seen = new Set<string>();
+  for (const widget of response.widgets) {
+    if (
+      !object(widget) ||
+      ![widget.extension, widget.container, widget.kind].every(
+        nonemptyString,
+      ) ||
+      (widget.name !== undefined && !nonemptyString(widget.name)) ||
+      !Array.isArray(widget.sizes) ||
+      !widget.sizes.length ||
+      !widget.sizes.every(
+        (size: unknown) =>
+          typeof size === "string" && widgetSizes.includes(size),
+      ) ||
+      new Set(widget.sizes).size !== widget.sizes.length
+    )
+      throw Error("Catalog contains invalid widget metadata");
+    const key = JSON.stringify([
+      widget.extension,
+      widget.container,
+      widget.kind,
+    ]);
+    if (seen.has(key))
+      throw Error("Catalog contains ambiguous widget descriptors");
+    seen.add(key);
+    const name = names.get(widget.container) ?? widget.container;
+    if (!apps.has(widget.container))
+      apps.set(widget.container, {
+        bundleIdentifier: widget.container,
+        name,
+        widgets: [],
+      });
+    apps.get(widget.container)!.widgets.push({
+      ...(widget.name ? { name: widget.name } : {}),
+      target: {
+        extension: widget.extension,
+        container: widget.container,
+        kind: widget.kind,
+      },
+      sizes: widgetSizes.filter((size) => widget.sizes.includes(size)),
+    });
+  }
+  return { apps: [...apps.values()] };
+}
+
+export function installedWidgets(state: Dict): Dict[] {
+  if (!Array.isArray(state.iconLists))
+    throw Error("IconState must contain Home iconLists");
+  const direct = new Map<Dict, { page: number; index: number }>();
+  for (const [page, entries] of state.iconLists.entries()) {
+    if (!Array.isArray(entries)) throw Error("Unsupported Home page structure");
+    for (const [index, entry] of entries.entries())
+      if (object(entry)) direct.set(entry, { page, index });
+  }
+  const widgets: Dict[] = [];
+  for (const entry of direct.keys()) {
+    const kind = entry.widgetIdentifier ?? entry.widgetKind ?? entry.kind;
+    const extension =
+      entry.extensionBundleIdentifier ??
+      entry.widgetExtensionBundleIdentifier ??
+      (nonemptyString(kind) ? entry.bundleIdentifier : undefined);
+    const candidate =
+      entry.elementType === "widget" ||
+      entry.extensionBundleIdentifier !== undefined ||
+      entry.widgetExtensionBundleIdentifier !== undefined ||
+      entry.widgetIdentifier !== undefined ||
+      entry.widgetKind !== undefined ||
+      (nonemptyString(kind) &&
+        nonemptyString(entry.bundleIdentifier) &&
+        nonemptyString(entry.containerBundleIdentifier));
+    if (!candidate) continue;
+    const container = entry.containerBundleIdentifier;
+    const size = String(
+      entry.gridSize ?? entry.gridSizeClass ?? entry.sizeClass,
+    )
+      .toLowerCase()
+      .replaceAll(" ", "");
+    if (
+      ![extension, container, kind].every(nonemptyString) ||
+      !widgetSizes.includes(size)
+    )
+      throw Error("Installed widget has incomplete or unsupported metadata");
+    const identifiers = [
+      [
+        entry.extensionBundleIdentifier,
+        entry.widgetExtensionBundleIdentifier,
+        entry.bundleIdentifier,
+      ],
+      [entry.widgetIdentifier, entry.widgetKind, entry.kind],
+    ];
+    for (const values of identifiers)
+      if (new Set(values.filter((value) => value !== undefined)).size > 1)
+        throw Error("Installed widget has ambiguous persisted metadata");
+    const sizes = [entry.gridSize, entry.gridSizeClass, entry.sizeClass]
+      .filter((value) => value !== undefined)
+      .map((value) => String(value).toLowerCase().replaceAll(" ", ""));
+    if (new Set(sizes).size > 1)
+      throw Error("Installed widget has ambiguous persisted metadata");
+    const ids = persistedTarget(entry);
+    validateHomeTarget(state, ids);
+    widgets.push({
+      target: {
+        extension,
+        container,
+        kind,
+        size,
+        iconIdentifier: ids.iconIdentifier,
+      },
+      widgetIdentifier: ids.widgetIdentifier,
+      position: direct.get(entry),
+    });
+  }
+  return widgets;
 }

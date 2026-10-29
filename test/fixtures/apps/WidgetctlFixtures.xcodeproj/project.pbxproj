@@ -1,0 +1,599 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0FC39D521B81FDC7D8BD1B0A /* GardenWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7862B8B346917F21E891D6F3 /* GardenWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1AC98FF77ED339F412566819 /* Widgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A733BEBAED1D76613BE0585 /* Widgets.swift */; };
+		279A26EAF26062B7CE55BB95 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAE167BA55767A660D55C00B /* Configuration.swift */; };
+		43D8ABA32796C686D003BAFA /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FA00811C8337198335938C /* App.swift */; };
+		82CA78AB24D868085B2CF2A0 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = E865CBA75C4D367A37D44C49 /* App.swift */; };
+		8D33D4099F70D603BDC953AF /* StudioWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 660CF4FE50FC3A23E4BC425F /* StudioWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		927F0EF97CC60B5C93E77B88 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667F3125BA72BDE7B84A7BDF /* Configuration.swift */; };
+		B7E9FD15D1713EDDA539EEAC /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAE167BA55767A660D55C00B /* Configuration.swift */; };
+		CE27F5754D6ECF97E1FABF09 /* Widgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81890E24D62C35610BF9F274 /* Widgets.swift */; };
+		E8848FDFAF27B7BF8C2FB2AA /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667F3125BA72BDE7B84A7BDF /* Configuration.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		808F08AE079B8979EF6320E3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 294345A9A3615C169BB818FB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6B90BCD3957DEFB76A9D608F;
+			remoteInfo = StudioWidgets;
+		};
+		AC9B7655355CABAA2FB70C13 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 294345A9A3615C169BB818FB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 02BD482A3F8B94CC93E1B757;
+			remoteInfo = GardenWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		4A7EDE2ABC8210C48C8806C5 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				0FC39D521B81FDC7D8BD1B0A /* GardenWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4F2A670B8A1F2483CB978C1A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				8D33D4099F70D603BDC953AF /* StudioWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		48B6DFD241333028B93233AC /* Garden.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Garden.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		660CF4FE50FC3A23E4BC425F /* StudioWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = StudioWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		667F3125BA72BDE7B84A7BDF /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
+		7862B8B346917F21E891D6F3 /* GardenWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = GardenWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		81890E24D62C35610BF9F274 /* Widgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Widgets.swift; sourceTree = "<group>"; };
+		8A733BEBAED1D76613BE0585 /* Widgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Widgets.swift; sourceTree = "<group>"; };
+		B3FA00811C8337198335938C /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
+		B4856CBDF695F790041B0D86 /* Studio.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Studio.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DAE167BA55767A660D55C00B /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
+		E865CBA75C4D367A37D44C49 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		AED033E75EC1404259B5ADB7 /* Garden */ = {
+			isa = PBXGroup;
+			children = (
+				B3FA00811C8337198335938C /* App.swift */,
+				DAE167BA55767A660D55C00B /* Configuration.swift */,
+				81890E24D62C35610BF9F274 /* Widgets.swift */,
+			);
+			path = Garden;
+			sourceTree = "<group>";
+		};
+		B271B3056B2A0EECF432CF2C = {
+			isa = PBXGroup;
+			children = (
+				AED033E75EC1404259B5ADB7 /* Garden */,
+				E3C97A3A8D13CD23C378BF19 /* Studio */,
+				EBFCC705FD6215E7FE9F97AC /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E3C97A3A8D13CD23C378BF19 /* Studio */ = {
+			isa = PBXGroup;
+			children = (
+				E865CBA75C4D367A37D44C49 /* App.swift */,
+				667F3125BA72BDE7B84A7BDF /* Configuration.swift */,
+				8A733BEBAED1D76613BE0585 /* Widgets.swift */,
+			);
+			path = Studio;
+			sourceTree = "<group>";
+		};
+		EBFCC705FD6215E7FE9F97AC /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				48B6DFD241333028B93233AC /* Garden.app */,
+				7862B8B346917F21E891D6F3 /* GardenWidgets.appex */,
+				B4856CBDF695F790041B0D86 /* Studio.app */,
+				660CF4FE50FC3A23E4BC425F /* StudioWidgets.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		02BD482A3F8B94CC93E1B757 /* GardenWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D931F869922E25F20378B6B7 /* Build configuration list for PBXNativeTarget "GardenWidgets" */;
+			buildPhases = (
+				123EBC460E1DC29243A93808 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GardenWidgets;
+			packageProductDependencies = (
+			);
+			productName = GardenWidgets;
+			productReference = 7862B8B346917F21E891D6F3 /* GardenWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		5E7AE25BD3D4B21EC5422393 /* Studio */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3927615FA1DED23A65D5B2AF /* Build configuration list for PBXNativeTarget "Studio" */;
+			buildPhases = (
+				37A71E2454079338D322C994 /* Sources */,
+				4F2A670B8A1F2483CB978C1A /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8EB4B362907A2EB188C12500 /* PBXTargetDependency */,
+			);
+			name = Studio;
+			packageProductDependencies = (
+			);
+			productName = Studio;
+			productReference = B4856CBDF695F790041B0D86 /* Studio.app */;
+			productType = "com.apple.product-type.application";
+		};
+		6B90BCD3957DEFB76A9D608F /* StudioWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1767FDE0839DD487B21AE626 /* Build configuration list for PBXNativeTarget "StudioWidgets" */;
+			buildPhases = (
+				8A4AC613329B00C28EAB7537 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = StudioWidgets;
+			packageProductDependencies = (
+			);
+			productName = StudioWidgets;
+			productReference = 660CF4FE50FC3A23E4BC425F /* StudioWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		A5EA24A5C242FCDD5F2B398C /* Garden */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D7E8F9BDB96B690C551277AB /* Build configuration list for PBXNativeTarget "Garden" */;
+			buildPhases = (
+				949F9F15B88AB81D0DA65CD9 /* Sources */,
+				4A7EDE2ABC8210C48C8806C5 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EAA9E65C8D777CEB47999AED /* PBXTargetDependency */,
+			);
+			name = Garden;
+			packageProductDependencies = (
+			);
+			productName = Garden;
+			productReference = 48B6DFD241333028B93233AC /* Garden.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		294345A9A3615C169BB818FB /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = CA8C40A3B53E618F07FFE770 /* Build configuration list for PBXProject "WidgetctlFixtures" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = B271B3056B2A0EECF432CF2C;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = EBFCC705FD6215E7FE9F97AC /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A5EA24A5C242FCDD5F2B398C /* Garden */,
+				02BD482A3F8B94CC93E1B757 /* GardenWidgets */,
+				5E7AE25BD3D4B21EC5422393 /* Studio */,
+				6B90BCD3957DEFB76A9D608F /* StudioWidgets */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		123EBC460E1DC29243A93808 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				279A26EAF26062B7CE55BB95 /* Configuration.swift in Sources */,
+				CE27F5754D6ECF97E1FABF09 /* Widgets.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		37A71E2454079338D322C994 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				82CA78AB24D868085B2CF2A0 /* App.swift in Sources */,
+				927F0EF97CC60B5C93E77B88 /* Configuration.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8A4AC613329B00C28EAB7537 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E8848FDFAF27B7BF8C2FB2AA /* Configuration.swift in Sources */,
+				1AC98FF77ED339F412566819 /* Widgets.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		949F9F15B88AB81D0DA65CD9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				43D8ABA32796C686D003BAFA /* App.swift in Sources */,
+				B7E9FD15D1713EDDA539EEAC /* Configuration.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8EB4B362907A2EB188C12500 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6B90BCD3957DEFB76A9D608F /* StudioWidgets */;
+			targetProxy = 808F08AE079B8979EF6320E3 /* PBXContainerItemProxy */;
+		};
+		EAA9E65C8D777CEB47999AED /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 02BD482A3F8B94CC93E1B757 /* GardenWidgets */;
+			targetProxy = AC9B7655355CABAA2FB70C13 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		389B15414A684A0E3E460088 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		46A0EF8BA43582D8E3522EA8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				INFOPLIST_FILE = Studio/WidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sound Studio Widgets";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.widgetctl.fixtures.studio.widgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		50F832C315CE95FAD9E7ED5B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_CFBundleDisplayName = "Sound Studio";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.widgetctl.fixtures.studio;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		5DEB9CFE49A664599883F4AC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		667B1E8C4AE3049855C4694D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				INFOPLIST_FILE = Garden/WidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Pocket Garden Widgets";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.widgetctl.fixtures.garden.widgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6C1A22D9E11DFCADAAF8F3ED /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_CFBundleDisplayName = "Pocket Garden";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.widgetctl.fixtures.garden;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		721E95C9E5D84805C7A98405 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_CFBundleDisplayName = "Pocket Garden";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.widgetctl.fixtures.garden;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9C8BF554C44B8ADFA40CCBBF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_CFBundleDisplayName = "Sound Studio";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.widgetctl.fixtures.studio;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		FC8D23B3CE460D0824247080 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				INFOPLIST_FILE = Studio/WidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sound Studio Widgets";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.widgetctl.fixtures.studio.widgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		FFE8E695B076FE22848AD4FE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				INFOPLIST_FILE = Garden/WidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Pocket Garden Widgets";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.widgetctl.fixtures.garden.widgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1767FDE0839DD487B21AE626 /* Build configuration list for PBXNativeTarget "StudioWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				46A0EF8BA43582D8E3522EA8 /* Debug */,
+				FC8D23B3CE460D0824247080 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		3927615FA1DED23A65D5B2AF /* Build configuration list for PBXNativeTarget "Studio" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				50F832C315CE95FAD9E7ED5B /* Debug */,
+				9C8BF554C44B8ADFA40CCBBF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CA8C40A3B53E618F07FFE770 /* Build configuration list for PBXProject "WidgetctlFixtures" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5DEB9CFE49A664599883F4AC /* Debug */,
+				389B15414A684A0E3E460088 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D7E8F9BDB96B690C551277AB /* Build configuration list for PBXNativeTarget "Garden" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6C1A22D9E11DFCADAAF8F3ED /* Debug */,
+				721E95C9E5D84805C7A98405 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D931F869922E25F20378B6B7 /* Build configuration list for PBXNativeTarget "GardenWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FFE8E695B076FE22848AD4FE /* Debug */,
+				667B1E8C4AE3049855C4694D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 294345A9A3615C169BB818FB /* Project object */;
+}

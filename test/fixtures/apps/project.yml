@@ -1,0 +1,82 @@
+name: WidgetctlFixtures
+options:
+  deploymentTarget:
+    iOS: "18.5"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGNING_ALLOWED: NO
+    IPHONEOS_DEPLOYMENT_TARGET: "18.5"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    GENERATE_INFOPLIST_FILE: YES
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Garden:
+    type: application
+    platform: iOS
+    sources:
+      - path: Garden/App.swift
+      - path: Garden/Configuration.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.widgetctl.fixtures.garden
+        INFOPLIST_KEY_CFBundleDisplayName: Pocket Garden
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    dependencies:
+      - target: GardenWidgets
+        embed: true
+  GardenWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Garden/Widgets.swift
+      - path: Garden/Configuration.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.widgetctl.fixtures.garden.widgets
+        INFOPLIST_KEY_CFBundleDisplayName: Pocket Garden Widgets
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    info:
+      path: Garden/WidgetInfo.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+  Studio:
+    type: application
+    platform: iOS
+    sources:
+      - path: Studio/App.swift
+      - path: Studio/Configuration.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.widgetctl.fixtures.studio
+        INFOPLIST_KEY_CFBundleDisplayName: Sound Studio
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    dependencies:
+      - target: StudioWidgets
+        embed: true
+  StudioWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Studio/Widgets.swift
+      - path: Studio/Configuration.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.widgetctl.fixtures.studio.widgets
+        INFOPLIST_KEY_CFBundleDisplayName: Sound Studio Widgets
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    info:
+      path: Studio/WidgetInfo.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+schemes:
+  Fixtures:
+    build:
+      targets:
+        Garden: all
+        Studio: all
