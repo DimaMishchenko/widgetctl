@@ -117,32 +117,25 @@ def draw_line(draw, position, text, font, emoji, color):
             x += draw.textlength(character, font=font)
 
 
-def render(screen, font, emoji, simulator, stage, state):
-    width, height = 1280, 760
+def render(screen, font, emoji, simulator):
+    width, height = 1280, 720
     terminal_right = 804
     frame = Image.new('RGB', (width, height), '#101319')
     draw = ImageDraw.Draw(frame)
-    bottom = height - 60
+    bottom = height - 20
     draw.rounded_rectangle((12, 12, terminal_right, bottom), radius=13, fill='#191e27', outline='#303743')
     draw.rounded_rectangle((13, 13, terminal_right - 1, 52), radius=12, fill='#242a34')
     draw.rectangle((13, 39, terminal_right - 1, 52), fill='#242a34')
     for x, color in [(34, '#8a686c'), (53, '#92866a'), (72, '#6c887b')]:
         draw.ellipse((x, 28, x + 9, 37), fill=color)
-    small = ImageFont.truetype('/System/Library/Fonts/Menlo.ttc', 13)
-    label = ImageFont.truetype('/System/Library/Fonts/SFNS.ttf', 17)
-    draw.text((107, 24), f'widgetctl  ·  {stage} widget', font=small, fill='#a5afbd')
     for index, line in enumerate(visible_lines(screen)):
         color = '#a9dbb9' if line.startswith('✓') else '#8cc8ff' if line.startswith('❯') else '#cbd3df'
         draw_line(draw, (32, 75 + index * 29), line, font, emoji, color)
-    simulator_label = f'Simulator · {state} capture'
-    draw.text((832, 24), simulator_label, font=label, fill='#cbd3df')
     phone = simulator.copy()
-    phone.thumbnail((420, 638), Image.Resampling.LANCZOS)
-    px, py = 1048 - phone.width // 2, 59
+    phone.thumbnail((420, 680), Image.Resampling.LANCZOS)
+    px, py = 1048 - phone.width // 2, 16
     draw.rounded_rectangle((px - 4, py - 4, px + phone.width + 4, py + phone.height + 4), radius=18, fill='#303743')
     frame.paste(phone, (px, py))
-    caption = 'Recorded CLI + simulator captures · pauses trimmed + playback sped up'
-    draw.text((25, height - 34), caption, font=small, fill='#8c97a7')
     return frame
 
 
@@ -166,7 +159,7 @@ def main():
                 for state in ('empty', 'added', 'edited', 'removed')}
     if len({capture.size for capture in captures.values()}) != 1:
         parser.error('Simulator captures must have matching dimensions')
-    frames = [render(screen, font, emoji, captures[state], stage, state)
+    frames = [render(screen, font, emoji, captures[state])
               for screen, _, state, stage in selected]
     for index, (frame, (screen, _, state, stage)) in enumerate(zip(frames, selected)):
         frame.save(args.proof_dir / f'frame-{index:02}.png')
