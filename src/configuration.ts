@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import path from "node:path";
-import plist from "plist";
-import bplist from "bplist-parser";
+import * as plist from "plist";
+import * as bplist from "bplist-parser";
 import type { JsonValue, WidgetConfiguration } from "./controller.js";
 import { listApplications } from "./discovery.js";
 

@@ -16,6 +16,7 @@ import { createController, type WidgetController } from "./controller.js";
 import { listSimulators, listApplications } from "./discovery.js";
 import { doctor } from "./doctor.js";
 import { WidgetctlError, classifyError } from "./errors.js";
+import { diagnosticJson } from "./diagnostic-json.js";
 
 const version: string = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -91,9 +92,10 @@ function result(
   value: Record<string, unknown>,
   isError = false,
 ): CallToolResult {
+  const text = diagnosticJson(value);
   return {
-    content: [{ type: "text", text: JSON.stringify(value) }],
-    structuredContent: value,
+    content: [{ type: "text", text }],
+    structuredContent: JSON.parse(text),
     ...(isError ? { isError: true } : {}),
   };
 }
@@ -227,6 +229,24 @@ export function createMcpServer(overrides: Partial<McpDependencies> = {}) {
         session(udid, signal, (controller) => controller.catalog()),
     ),
     tool(
+      "widgetctl_wait_for_descriptor",
+      "Wait for an exact widget descriptor after first app launch. Read-only catalog wait after helper preparation; does not add a widget. Timeout includes catalog requests and drains an in-flight request before cleanup.",
+      z.strictObject({
+        ...device,
+        target,
+        timeoutMs: z.number().positive().max(2_147_483_647),
+      }),
+      true,
+      async ({ udid, target, timeoutMs }, signal) =>
+        session(udid, signal, async (controller) => {
+          await controller.waitForWidgetDescriptor(target, {
+            timeoutMs,
+            signal,
+          });
+          return { ready: true, target };
+        }),
+    ),
+    tool(
       "widgetctl_installed",
       "List installed widgets with exact icon identities and positions.",
       z.strictObject(device),
@@ -236,7 +256,7 @@ export function createMcpServer(overrides: Partial<McpDependencies> = {}) {
     ),
     tool(
       "widgetctl_ensure",
-      "Add or reveal a catalog widget. Preserves other widgets; ambiguous existing targets fail. Returns exact instance identity.",
+      "Add or reuse a catalog widget. Preserves other widgets; ambiguous existing targets fail. Returns exact instance identity. Presentation is requested; verify Home Screen visibility with a native UI driver.",
       z.strictObject({
         ...device,
         target,
@@ -250,6 +270,7 @@ export function createMcpServer(overrides: Partial<McpDependencies> = {}) {
           return {
             target: handle.target,
             iconIdentifier: handle.iconIdentifier,
+            visibility: "unverified",
           };
         }),
     ),

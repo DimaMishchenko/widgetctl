@@ -28,6 +28,7 @@ import {
   runtime,
   type Runtime,
   prepareDirectory,
+  existingDirectory,
   withLock,
   atomicJson,
   readJson,
@@ -57,6 +58,7 @@ export interface BackendOptions {
   architecture?: "arm64" | "x86_64";
   launchDomain?: string;
   stateDirectory?: string;
+  requirePrepared?: boolean;
   configuration?: Dict;
   expectedConfiguration?: Dict;
   parameterKey?: string;
@@ -64,6 +66,7 @@ export interface BackendOptions {
 }
 export interface BackendResult {
   status: string;
+  visibility?: "unverified";
   timings: Record<string, number>;
   [key: string]: any;
 }
@@ -86,6 +89,13 @@ function validateInput(o: BackendOptions): string {
     throw Error("Invalid operation mode");
   if (o.mode !== "ensure" && (o.exclusive || o.replace || o.position))
     throw Error("Exclusive, replace and position apply only to ensure");
+  if (
+    o.requirePrepared !== undefined &&
+    (typeof o.requirePrepared !== "boolean" || o.mode !== "catalog")
+  )
+    throw Error(
+      "requirePrepared is a boolean accepted only for catalog queries",
+    );
   for (const key of ["exclusive", "replace"] as const)
     if (o[key] !== undefined && typeof o[key] !== "boolean")
       throw Error(`${key} must be a boolean`);
@@ -172,11 +182,14 @@ export function createBackend(
     try {
       const udid = validateOptions(o);
       Object.assign(out, { udid, mode: o.mode });
-      const root = await prepareDirectory(globalRoot);
-      const state = await prepareDirectory(o.stateDirectory ?? root);
+      const directory = o.requirePrepared
+        ? existingDirectory
+        : prepareDirectory;
+      const root = await directory(globalRoot);
+      const state = await directory(o.stateDirectory ?? root);
       out.state_dir = state;
-      const sessions = await prepareDirectory(path.join(root, "sessions"));
-      const session = await prepareDirectory(path.join(sessions, udid));
+      const sessions = await directory(path.join(root, "sessions"));
+      const session = await directory(path.join(sessions, udid));
       return await withLock(path.join(session, "runner.lock"), async () => {
         const listing = JSON.parse(
           await r.command(["xcrun", "simctl", "list", "devices", "--json"]),
@@ -351,6 +364,45 @@ export function createBackend(
           const [persisted] = await r.loadIconstate(paths);
           return finish("listed", { widgets: installedWidgets(persisted) });
         }
+        let prepared:
+          | { worker: string; identity: string; live: Dict; target: string }
+          | undefined;
+        if (o.requirePrepared) {
+          target = await resolveTarget();
+          const injection = await readJson(injectionPath);
+          const live = await r.heartbeat(session);
+          if (
+            !object(injection) ||
+            injection.udid !== udid ||
+            injection.target !== target ||
+            injection.pending !== false ||
+            !live ||
+            live.udid !== udid ||
+            live.protocol !== 1 ||
+            live.ready !== true ||
+            typeof live.identity !== "string" ||
+            live.identity !== injection.identity ||
+            live.pid !== injection.pid ||
+            (await pid()) !== live.pid
+          )
+            throw new WidgetctlError(
+              "Descriptor wait requires a live prepared worker for the owned simulator session",
+              { code: "HELPER_UNAVAILABLE" },
+            );
+          const [worker, identity] = await r.preparedWorker(
+            state,
+            udid,
+            listing,
+            o.architecture,
+            r.command,
+          );
+          if (live.identity !== identity)
+            throw new WidgetctlError(
+              "Prepared worker identity is stale; explicitly prepare the owned session",
+              { code: "HELPER_UNAVAILABLE" },
+            );
+          prepared = { worker, identity, live, target };
+        }
         await removeSessionFile("command.json");
         let existing: Dict = { iconLists: [] },
           existingMatches: Dict[] = [],
@@ -452,8 +504,13 @@ export function createBackend(
         }
         const preparing = r.now();
         const preparation = await Promise.allSettled([
-          r.compileWorker(state, udid, listing, o.architecture, r.command),
-          resolveTarget(),
+          prepared
+            ? Promise.resolve([prepared.worker, prepared.identity] as [
+                string,
+                string,
+              ])
+            : r.compileWorker(state, udid, listing, o.architecture, r.command),
+          prepared ? Promise.resolve(prepared.target) : resolveTarget(),
         ]);
         for (const step of preparation)
           if (step.status === "rejected") throw step.reason;
@@ -464,7 +521,7 @@ export function createBackend(
         out.timings.preparation_seconds = (r.now() - preparing) / 1000;
         out.springboard_target = target;
         out.worker_path = worker;
-        let live = await r.heartbeat(session);
+        let live = prepared?.live ?? (await r.heartbeat(session));
         if (
           live &&
           (live.protocol !== 1 ||
@@ -474,6 +531,10 @@ export function createBackend(
           live = null;
         if (live && (await pid()) !== live.pid) live = null;
         if (!live) {
+          if (o.requirePrepared)
+            throw new WidgetctlError("Prepared worker became unavailable", {
+              code: "HELPER_UNAVAILABLE",
+            });
           const started = r.now();
           await removeSessionFile("heartbeat.json");
           await atomicJson(injectionPath, {
@@ -513,13 +574,14 @@ export function createBackend(
               { code: "HELPER_UNAVAILABLE" },
             );
         } else out.timings.injection_restart_seconds = 0;
-        await atomicJson(injectionPath, {
-          udid,
-          target,
-          pending: false,
-          identity,
-          pid: live.pid,
-        });
+        if (!o.requirePrepared)
+          await atomicJson(injectionPath, {
+            udid,
+            target,
+            pending: false,
+            identity,
+            pid: live.pid,
+          });
         out.worker = live;
         out.springboard_pid = live.pid;
         if (o.mode === "prepare") return finish("ready");
@@ -956,6 +1018,7 @@ export function createBackend(
           o.size!,
         );
         return finish("verified", {
+          visibility: "unverified",
           iconstate_matches: matches,
           iconIdentifier: ids.iconIdentifier,
           widgetIdentifier: ids.widgetIdentifier,

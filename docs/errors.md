@@ -53,3 +53,5 @@ Match `code`, not message text. `retryable: true` is reserved for failed read-on
 | `OPERATION_FAILED` | Inspect doctor and the operation result; this is the fallback for unclassified failures. |
 
 Guided mode offers the JSON choice fallback only for supported recoverable query errors. Ownership, stale-state and unknown errors stop that edit. Failed mutating actions release their helper before another action; later attempts ask for preparation again. No submitted write is retried automatically.
+
+A `DESCRIPTOR_TIMEOUT` means the exact descriptor did not register within the read budget. The error identifies the target, simulator, elapsed time and last successful catalog summary. Confirm the containing app launched and the target matches its catalog. It does not trigger app relaunch, helper recovery or another placement.

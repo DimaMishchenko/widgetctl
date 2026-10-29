@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { runCli, type CliRuntime } from "../src/cli.js";
 import type { WidgetController } from "../src/controller.js";
 import { WidgetctlError } from "../src/errors.js";
+import { UID } from "bplist-parser";
 const cli = new URL("../dist/cli.js", import.meta.url);
 const udid = "208E6530-2FE7-45F7-9947-E3976A766E41";
 const icon = "F08E6530-2FE7-45F7-9947-E3976A766E41";
@@ -187,6 +188,71 @@ test("remove targets an exact identity without ensuring or adding", async () => 
     0,
   );
   assert.deepEqual(environment.calls, ["prepare", "remove", "release"]);
+});
+test("remove emits exact bigint diagnostics after successful removal and release", async () => {
+  const environment = setup();
+  const before = {
+    nested: [{ integer: 9_223_372_036_854_775_809n }],
+    signed: -9_223_372_036_854_775_809n,
+    data: Buffer.from("data"),
+    date: new Date("2020-01-01"),
+    uid: new UID(42),
+  };
+  environment.controller.getWidget = async () =>
+    ({
+      remove: async () => {
+        environment.calls.push("remove");
+        return { status: "removed", iconstate_before: before };
+      },
+    }) as never;
+  assert.equal(
+    await runCli(
+      ["remove", "--device", udid, "--widget", icon, "--json"],
+      environment.runtime,
+    ),
+    0,
+  );
+  assert.deepEqual(environment.calls, ["prepare", "remove", "release"]);
+  assert.deepEqual(JSON.parse(environment.stdout()), {
+    schemaVersion: 1,
+    status: "removed",
+    iconstate_before: {
+      nested: [{ integer: { $bigint: "9223372036854775809" } }],
+      signed: { $bigint: "-9223372036854775809" },
+      data: { type: "Buffer", data: [100, 97, 116, 97] },
+      date: "2020-01-01T00:00:00.000Z",
+      uid: { UID: 42 },
+    },
+  });
+  assert.equal(before.nested[0]!.integer, 9_223_372_036_854_775_809n);
+  assert.equal(environment.stderr(), "");
+});
+test("remove failures with opaque bigint state retain their classified JSON error", async () => {
+  const environment = setup();
+  environment.controller.getWidget = async () =>
+    ({
+      remove: async () => {
+        environment.calls.push("remove");
+        throw new WidgetctlError("Removal verification failed", {
+          code: "VERIFICATION_FAILED",
+          result: {
+            status: "removal_unverified",
+            iconstate_before: { integer: 9_223_372_036_854_775_809n },
+          },
+        });
+      },
+    }) as never;
+  assert.equal(
+    await runCli(
+      ["remove", "--device", udid, "--widget", icon, "--json"],
+      environment.runtime,
+    ),
+    2,
+  );
+  assert.deepEqual(environment.calls, ["prepare", "remove", "release"]);
+  const result = JSON.parse(environment.stdout());
+  assert.equal(result.code, "VERIFICATION_FAILED");
+  assert.equal(result.error, "Removal verification failed");
 });
 test("devices is read only and JSON mode never prompts even in a terminal", async () => {
   const environment = setup({ isTTY: true });

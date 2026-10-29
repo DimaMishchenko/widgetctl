@@ -15,6 +15,9 @@ const guidance = {
   DEVICE_BUSY: [
     "Wait for the current simulator owner to finish. Do not delete its locks.",
   ],
+  DESCRIPTOR_TIMEOUT: [
+    "The read-only descriptor wait exhausted its budget. Check registration and the exact target while retaining simulator ownership before deciding whether to wait again.",
+  ],
   APP_NOT_REGISTERED: [
     "Launch the containing app once, then refresh the widget catalog.",
   ],

@@ -57,6 +57,8 @@ Explicit CLI commands prepare and release automatically, including failed prepar
 
 Use `--json` for one JSON result on stdout, with `schemaVersion: 1`, `status`, and operation data or an `error`. Failures also include a stable `code`, human-readable `recovery` steps and `retryable`. Match codes, not English messages; a submitted mutation is never automatically retried. See [diagnostics and error codes](errors.md). JSON mode never prompts, even in a terminal. Without a terminal, missing required arguments fail with usage guidance. Plain terminal output is intended for humans.
 
+Opaque diagnostic integers outside JSON's number representation use `{"$bigint":"9223372036854775809"}` to preserve their exact value. Canonical configuration exports still require finite JSON values.
+
 ```sh
 npx widgetctl catalog --device "$SIMULATOR_UDID" --json
 npx widgetctl add --device "$SIMULATOR_UDID" \
@@ -64,7 +66,7 @@ npx widgetctl add --device "$SIMULATOR_UDID" \
 npx widgetctl list --device "$SIMULATOR_UDID" --json
 ```
 
-`catalog` groups descriptors under installed app names and bundle identifiers. Use `--extension` when an app has several extensions with the same kind. The requested app, extension, kind and size must resolve to exactly one descriptor. `add` reuses a matching widget or creates one; ambiguity fails instead of choosing an existing duplicate.
+`catalog` groups descriptors under installed app names and bundle identifiers. Use `--extension` when an app has several extensions with the same kind. The requested app, extension, kind and size must resolve to exactly one descriptor. `add` reuses a matching widget or creates one; ambiguity fails instead of choosing an existing duplicate. A verified result proves saved identity and placement, not the currently visible Home Screen page; JSON reports `visibility: "unverified"`.
 
 Capture `iconIdentifier` from `add` or `list`, then target that identity:
 
@@ -105,7 +107,7 @@ try {
 }
 ```
 
-`ensure(target)` adds or reuses a matching widget and returns an exact handle. `getWidget(iconIdentifier)` binds an existing icon without adding or revealing it. A stale exact handle fails rather than selecting a replacement.
+`ensure(target)` adds or reuses a matching widget and returns an exact handle. Presentation is requested asynchronously; use a native driver to verify the exact widget is visible. `position: "top"` refers to its current page, not the first Home Screen page. `getWidget(iconIdentifier)` binds an existing icon without adding or revealing it. A stale exact handle fails rather than selecting a replacement.
 
 | Call                                                 | Result                                                       |
 | ---------------------------------------------------- | ------------------------------------------------------------ |
@@ -119,9 +121,29 @@ try {
 | `widget.exportConfiguration()`                       | Complete configuration envelope                              |
 | `widget.applyConfiguration(envelope, { expected }?)` | Apply, optionally requiring an unchanged original snapshot   |
 | `widget.updateConfiguration(mutator)`                | Fresh export, parameter mutation and verified apply          |
-| `widget.reveal()` / `widget.remove()`                | Exact verified operation                                     |
+| `widget.reveal()`                                    | Request presentation; verify saved identity, not visible page |
+| `widget.remove()`                                    | Verify removal of the exact saved widget                     |
 
 Only `udid` is required to create a controller. Advanced options include `stateDirectory`, `architecture`, `launchDomain`, and `onResult`. Keep logging callbacks nonthrowing: a logging failure cannot undo an operation.
+
+## First-launch readiness
+
+After launching a newly installed app and preparing your owned session, its descriptors may still be registering. Wait for the exact descriptor before calling `ensure` once:
+
+```ts
+const target = {
+  container: "com.example.weather",
+  extension: "com.example.weather.widgets",
+  kind: "Forecast",
+  size: "medium" as const,
+};
+await widgets.waitForWidgetDescriptor(target, { timeoutMs: 30_000 });
+const widget = await widgets.ensure(target);
+```
+
+Pass an optional `signal: AbortSignal` to cancel the wait. The wait polls successful catalogs missing that exact app/extension/kind/size. Errors and ambiguity fail immediately. It uses the prepared helper without launching apps or recovering a lost session. The deadline includes queued and in-flight catalog work; late success is rejected. Cancellation and timeout drain an active read before cleanup, so settlement can exceed the requested budget.
+
+To verify presentation after placement, use a native UI driver to find the exact widget and observe the relevant Home Screen page. A saved-position check or submitted reveal request does not establish visibility.
 
 ## Configuration limits
 
