@@ -86,6 +86,7 @@ function fake(
     udid,
     prepare: () => backend("prepare"),
     release: () => backend("release"),
+    waitForWidgetDescriptor: async () => {},
     catalog: async () => {
       events.push("catalog");
       return { apps: [] };
@@ -151,7 +152,7 @@ test("stdio SDK client lists concrete tools without accessing simulator tooling"
     await client.connect(transport);
     assert.equal(client.getNegotiatedProtocolVersion(), "2026-07-28");
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 11);
+    assert.equal(tools.length, 12);
     const apply = tools.find(
       (tool) => tool.name === "widgetctl_configuration_apply",
     )!;
@@ -312,6 +313,82 @@ test("tools use direct controller handles and release for every prepared operati
         true,
       );
     assert.equal(events.filter((event) => event === "prepare").length, 8);
+  } finally {
+    await app.close();
+  }
+});
+
+test("remove preserves exact bigint diagnostics in matching MCP text and structured content", async () => {
+  const events: string[] = [];
+  const before = { nested: [{ integer: 9_223_372_036_854_775_809n }] };
+  const app = await connected({
+    createController: () =>
+      fake(
+        events,
+        {},
+        {
+          remove: async () => {
+            events.push("remove");
+            return { status: "removed", iconstate_before: before };
+          },
+        },
+      ),
+  });
+  try {
+    const response = await app.client.callTool({
+      name: "widgetctl_remove",
+      arguments: { udid, iconIdentifier },
+    });
+    assert.equal(response.isError, undefined);
+    assert.deepEqual(response.structuredContent, {
+      ok: true,
+      data: {
+        status: "removed",
+        iconstate_before: {
+          nested: [{ integer: { $bigint: "9223372036854775809" } }],
+        },
+      },
+    });
+    const content = response.content as { type: string; text: string }[];
+    assert.deepEqual(JSON.parse(content[0]!.text), response.structuredContent);
+    assert.equal(before.nested[0]!.integer, 9_223_372_036_854_775_809n);
+    assert.deepEqual(events, ["prepare", "getWidget", "remove", "release"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("remove failures with opaque bigint state return a classified MCP error after release", async () => {
+  const events: string[] = [];
+  const app = await connected({
+    createController: () =>
+      fake(
+        events,
+        {},
+        {
+          remove: async () => {
+            events.push("remove");
+            throw new WidgetctlError("Removal verification failed", {
+              code: "VERIFICATION_FAILED",
+              result: {
+                status: "removal_unverified",
+                iconstate_before: { integer: 9_223_372_036_854_775_809n },
+              },
+            });
+          },
+        },
+      ),
+  });
+  try {
+    const response = await app.client.callTool({
+      name: "widgetctl_remove",
+      arguments: { udid, iconIdentifier },
+    });
+    assert.equal(response.isError, true);
+    assert.equal(payload(response).error!.code, "VERIFICATION_FAILED");
+    const content = response.content as { type: string; text: string }[];
+    assert.deepEqual(JSON.parse(content[0]!.text), response.structuredContent);
+    assert.deepEqual(events, ["prepare", "getWidget", "remove", "release"]);
   } finally {
     await app.close();
   }
@@ -757,9 +834,51 @@ test(
       });
       const listed = await request(3, "tools/list");
       assert.ok("result" in listed);
-      assert.equal((listed.result.tools as unknown[]).length, 11);
+      assert.equal((listed.result.tools as unknown[]).length, 12);
     } finally {
       await transport.close();
     }
   },
 );
+
+test("descriptor wait forwards its bounded budget and cancellation, then releases", async () => {
+  const events: string[] = [];
+  const descriptor = {
+    container: target.container,
+    extension: target.extension,
+    kind: target.kind,
+    size: target.size,
+  };
+  const app = await connected({
+    createController: () =>
+      fake(events, {
+        waitForWidgetDescriptor: async (selected, options) => {
+          assert.deepEqual(selected, descriptor);
+          assert.equal(options.timeoutMs, 30000);
+          assert.ok(options.signal instanceof AbortSignal);
+          events.push("wait");
+        },
+      }),
+  });
+  try {
+    const response = await app.client.callTool({
+      name: "widgetctl_wait_for_descriptor",
+      arguments: { udid, target: descriptor, timeoutMs: 30000 },
+    });
+    assert.equal(response.isError, undefined);
+    assert.deepEqual(response.structuredContent, {
+      ok: true,
+      data: { ready: true, target: descriptor },
+    });
+    assert.deepEqual(events, ["prepare", "wait", "release"]);
+    const invalid = await app.client.callTool({
+      name: "widgetctl_wait_for_descriptor",
+      arguments: { udid, target: descriptor, timeoutMs: 0 },
+    });
+    assert.equal(invalid.isError, true);
+    assert.equal(payload(invalid).error?.code, "INVALID_INPUT");
+    assert.deepEqual(events, ["prepare", "wait", "release"]);
+  } finally {
+    await app.close();
+  }
+});

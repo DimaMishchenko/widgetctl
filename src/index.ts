@@ -18,6 +18,7 @@ export type {
   WidgetHandle,
   WidgetController,
 } from "./controller.js";
+export type { DescriptorTarget, DescriptorWaitOptions } from "./readiness.js";
 export type { BackendResult as WidgetOperationResult } from "./backend.js";
 export function createWidgetController(
   options: WidgetControllerOptions,

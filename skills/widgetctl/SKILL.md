@@ -27,6 +27,8 @@ node "$WIDGETCTL" add --device "$SIMULATOR_UDID" \
 node "$WIDGETCTL" list --device "$SIMULATOR_UDID" --json
 ```
 
+For a newly launched app whose known descriptor is still registering, use MCP `widgetctl_wait_for_descriptor` with an explicit timeout, or API `waitForWidgetDescriptor(target, { timeoutMs, signal })` inside a prepared session. Successful absence alone polls; errors and ambiguity fail. Call add/ensure once after readiness.
+
 CLI and MCP operations prepare and release automatically. For repeated operations under one native driver connection, prefer the TypeScript lifecycle or the `widgetctl/playwright` fixture. Keep `prepare()` inside `try` so even setup failures release:
 
 ```ts
@@ -47,6 +49,6 @@ try {
 - CLI automation uses `export --widget "$WIDGET_ICON" --file widget.json`, edits the complete envelope, then `configure` with the same arguments; include `--device` and `--json`. `edit` is interactive only. Export fresh before each later change because saving can rotate instance identities.
 - Preserve unknown fields, entity metadata, absent versus null parameters and native numeric representations. Use API `describeConfiguration()` and `configurationChoices()` to discover editable fields and canonical choices; never invent an entity from its display label. Prefer `updateConfiguration()` or `applyConfiguration(draft, { expected: original })` for guarded API edits.
 - Inspect JSON `code`, `recovery` and current saved state after errors. A failed or timed-out write may already have completed; do not blindly resubmit it. Report unsupported runtime/configuration results as such.
-- Verify saved readback and rendered app-specific content separately. Keep requested persistent changes. For temporary test setup, remove only test-created exact icons and restore test-edited values during cleanup.
+- Verify saved readback and rendered app-specific content separately. Reveal requests presentation; `position: "top"` means first on the current page. Native UI observation must establish actual visibility. Keep requested persistent changes. For temporary test setup, remove only test-created exact icons and restore test-edited values during cleanup.
 
 Use the bundled CLI's `--help` or MCP `tools/list` for exact arguments. For API signatures, Playwright wiring and runnable examples, install the project's `widgetctl` dependency and read its `docs/usage.md` and `examples/`; those files match the installed version.

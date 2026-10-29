@@ -7,8 +7,8 @@ import os from "node:os";
 import { randomUUID, createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
-import plist from "plist";
-import bplist from "bplist-parser";
+import * as plist from "plist";
+import * as bplist from "bplist-parser";
 import {
   type Dict,
   object,
@@ -93,6 +93,31 @@ export async function prepareDirectory(p: string): Promise<string> {
       `State directory must be owned by this user and not writable by others: ${p}`,
       { code: "UNSAFE_STATE" },
     );
+  return fs.realpath(p);
+}
+export async function existingDirectory(p: string): Promise<string> {
+  p = path.resolve(
+    p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p,
+  );
+  let info;
+  try {
+    info = await fs.lstat(p);
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    throw new WidgetctlError(
+      "Descriptor wait requires an existing prepared simulator session",
+      { code: "HELPER_UNAVAILABLE", cause },
+    );
+  }
+  if (
+    !info.isDirectory() ||
+    info.isSymbolicLink() ||
+    info.uid !== process.getuid?.() ||
+    info.mode & 0o022
+  )
+    throw new WidgetctlError(`Unsafe prepared session directory: ${p}`, {
+      code: "UNSAFE_STATE",
+    });
   return fs.realpath(p);
 }
 export function processAlive(pid: unknown): boolean {
@@ -212,9 +237,18 @@ export interface Runtime {
   heartbeat: typeof heartbeat;
   loadIconstate: typeof loadIconstate;
   compileWorker: typeof compileWorker;
+  preparedWorker: typeof preparedWorker;
   requestWorker: typeof requestWorker;
   sleep: typeof sleep;
   now: () => number;
+}
+function nodePlistData(value: plist.PlistValue): plist.PlistValue {
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (Array.isArray(value)) return value.map(nodePlistData);
+  if (value !== null && typeof value === "object" && !(value instanceof Date))
+    for (const key of Object.keys(value))
+      value[key] = nodePlistData(value[key]!);
+  return value;
 }
 export async function loadIconstate(paths: string[]): Promise<[Dict, string]> {
   const errors: string[] = [];
@@ -224,7 +258,7 @@ export async function loadIconstate(paths: string[]): Promise<[Dict, string]> {
       const value =
         bytes.subarray(0, 8).toString() === "bplist00"
           ? bplist.parseBuffer(bytes)[0]
-          : plist.parse(bytes.toString());
+          : nodePlistData(plist.parse(bytes.toString()));
       if (!object(value) || !Array.isArray(value.iconLists))
         throw Error("IconState must contain Home iconLists");
       return [value, p];
@@ -236,13 +270,12 @@ export async function loadIconstate(paths: string[]): Promise<[Dict, string]> {
       errors.join("; "),
   );
 }
-export async function compileWorker(
-  state: string,
+async function workerPlan(
   udid: string,
   listing: Dict,
   architecture?: string,
   run = command,
-): Promise<[string, string]> {
+) {
   assertLockOwnership();
   const discoveries = await Promise.allSettled([
     run(["xcrun", "simctl", "list", "runtimes", "--json"]),
@@ -293,6 +326,54 @@ export async function compileWorker(
       }),
     )
     .digest("hex");
+  return { source, target, sdk, compiler, identity };
+}
+export async function preparedWorker(
+  state: string,
+  udid: string,
+  listing: Dict,
+  architecture?: string,
+  run = command,
+): Promise<[string, string]> {
+  assertLockOwnership();
+  const { identity } = await workerPlan(udid, listing, architecture, run);
+  const workers = await existingDirectory(path.join(state, "workers"));
+  const cache = await existingDirectory(path.join(workers, identity));
+  const worker = path.join(cache, "worker.dylib");
+  let info;
+  try {
+    info = await fs.lstat(worker);
+  } catch (cause) {
+    throw new WidgetctlError(
+      "Prepared worker cache is unavailable; prepare the owned session explicitly",
+      { code: "HELPER_UNAVAILABLE", cause },
+    );
+  }
+  if (
+    !info.isFile() ||
+    info.isSymbolicLink() ||
+    info.uid !== process.getuid?.()
+  )
+    throw new WidgetctlError("Unsafe compiled worker ownership", {
+      code: "UNSAFE_STATE",
+    });
+  assertLockOwnership();
+  return [worker, identity];
+}
+export async function compileWorker(
+  state: string,
+  udid: string,
+  listing: Dict,
+  architecture?: string,
+  run = command,
+): Promise<[string, string]> {
+  assertLockOwnership();
+  const { source, target, sdk, compiler, identity } = await workerPlan(
+    udid,
+    listing,
+    architecture,
+    run,
+  );
   const workers = await prepareDirectory(path.join(state, "workers"));
   const cache = await prepareDirectory(path.join(workers, identity));
   const worker = path.join(cache, "worker.dylib");
@@ -399,6 +480,7 @@ export const runtime: Runtime = {
   heartbeat,
   loadIconstate,
   compileWorker,
+  preparedWorker,
   requestWorker,
   sleep,
   now: () => performance.now(),

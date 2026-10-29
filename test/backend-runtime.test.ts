@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import plist from "plist";
+import * as plist from "plist";
+import { UID } from "bplist-parser";
 import { createBackend } from "../src/backend.js";
 import {
   type Runtime,
@@ -15,6 +16,7 @@ import {
   withLock,
   loadIconstate,
   compileWorker,
+  preparedWorker,
   requestWorker,
   command,
 } from "../src/backend-runtime.js";
@@ -50,7 +52,13 @@ async function fixture(initial: Dict = { iconLists: [] }) {
   const listing = {
     devices: {
       "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
-        { udid: UDID, state: "Booted", dataPath: path.join(dir, "data") },
+        {
+          udid: UDID,
+          name: "Owned simulator",
+          state: "Booted",
+          isAvailable: true,
+          dataPath: path.join(dir, "data"),
+        },
       ],
     },
   };
@@ -64,6 +72,7 @@ async function fixture(initial: Dict = { iconLists: [] }) {
     },
     heartbeat: async () => live,
     compileWorker: async () => [path.join(dir, "worker.dylib"), "identity"],
+    preparedWorker: async () => [path.join(dir, "worker.dylib"), "identity"],
     loadIconstate: async () => [state, path.join(dir, "state")],
     requestWorker: async (_s, _live, payload, expected) => {
       payloads.push(payload);
@@ -141,6 +150,7 @@ test("exact handles address duplicate tuples and stale handles fail closed", asy
       iconIdentifier: w.displayIdentifier,
     });
     assert.equal(result.status, "verified");
+    assert.equal(result.visibility, "unverified");
     assert.equal(result.iconIdentifier, w.displayIdentifier);
     assert.equal(f.payloads.length, 1);
     assert.equal(
@@ -214,6 +224,7 @@ test("new placement reveals separately and rejects changed persisted identity", 
         result.status,
         corrupt ? "reveal_persistence_unverified" : "verified",
       );
+      if (!corrupt) assert.equal(result.visibility, "unverified");
       assert.equal(f.payloads.length, 2);
       assert.equal(f.payloads[1]!.iconIdentifier, w.displayIdentifier);
     } finally {
@@ -476,12 +487,45 @@ test("plist loading requires Home iconLists and accepts XML date/data", async ()
         iconLists: [],
         date: new Date("2020-01-01"),
         data: Buffer.from("data"),
+        nested: [{ data: Buffer.from("nested") }],
       }),
     );
     const [value] = await loadIconstate([file]);
     assert.deepEqual(value.iconLists, []);
     assert.ok(value.date instanceof Date);
     assert.ok(Buffer.isBuffer(value.data));
+    assert.deepEqual(value.data, Buffer.from("data"));
+    assert.deepEqual(value.nested[0].data, Buffer.from("nested"));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+test("binary IconState preserves opaque null, UID, date, data and exact integers", async () => {
+  const dir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "widgetctl-binary-plist-"),
+  );
+  try {
+    const file = path.join(dir, "IconState.plist");
+    await fs.writeFile(
+      file,
+      Buffer.from(
+        "YnBsaXN0MDDZAQIDBAUGBwgJCgsMDQ4PEBQVW2Fic2VudFZhbHVlVGRhdGFUZGF0ZVlpY29uTGlzdHNcbGFyZ2VJbnRlZ2VyXxAPbmVnYXRpdmVJbnRlZ2VyVm5lc3RlZFtzYWZlSW50ZWdlclN1aWQARGRhdGEzQcHeDEAAAACgFAAAAAAAAAAAgAAAAAAAAAET/////////9akChESEwgQAFATAAABAAAAAAGAKggbJywxO0haYW1xcneAgZKboKGjpK0AAAAAAAABAQAAAAAAAAAWAAAAAAAAAAAAAAAAAAAArw==",
+        "base64",
+      ),
+    );
+    const [value, source] = await loadIconstate([file]);
+    assert.equal(source, file);
+    assert.deepEqual(value.iconLists, []);
+    assert.ok(Object.hasOwn(value, "absentValue"));
+    assert.equal(value.absentValue, null);
+    assert.deepEqual(value.nested, [null, false, 0, ""]);
+    assert.equal(value.date.toISOString(), "2020-01-01T00:00:00.000Z");
+    assert.deepEqual(value.data, Buffer.from("data"));
+    assert.ok(value.uid instanceof UID);
+    assert.equal(value.uid.UID, 42);
+    assert.equal(value.safeInteger, 1_099_511_627_777);
+    assert.equal(value.negativeInteger, -42);
+    assert.equal(value.largeInteger, 9_223_372_036_854_775_809n);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -524,6 +568,19 @@ test("compilation cache identity ignores volatile runtime metadata", async () =>
     assert.deepEqual(
       await compileWorker(dir, UDID, listing, "arm64", run),
       first,
+    );
+    assert.deepEqual(
+      await preparedWorker(dir, UDID, listing, "arm64", run),
+      first,
+    );
+    assert.equal(count, 1);
+    runtime.version = "27.1";
+    await assert.rejects(
+      preparedWorker(dir, UDID, listing, "arm64", run),
+      (error) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "HELPER_UNAVAILABLE",
     );
     assert.equal(count, 1);
   } finally {
@@ -701,6 +758,233 @@ test("placement does not verify a widget from a different app container", async 
     });
     assert.equal(result.status, "placement_persistence_unverified");
     assert.match(result.verification_error, /container/);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("prepared-only catalog rejects cold sessions without creating directories or compiling", async () => {
+  const f = await fixture();
+  try {
+    let builds = 0;
+    f.r.compileWorker = async () => {
+      builds++;
+      throw Error("compile forbidden");
+    };
+    f.r.preparedWorker = async () => {
+      throw Error("cache inspection forbidden before session validation");
+    };
+    const result = await f.run({
+      udid: UDID,
+      mode: "catalog",
+      requirePrepared: true,
+    });
+    assert.equal(result.status, "failed");
+    assert.equal(result.errorCode, "HELPER_UNAVAILABLE");
+    assert.equal(builds, 0);
+    assert.deepEqual(f.commands, []);
+    assert.deepEqual(f.payloads, []);
+    assert.deepEqual(await fs.readdir(f.dir), []);
+  } finally {
+    await f.dispose();
+  }
+});
+
+for (const stale of [
+  "missing heartbeat",
+  "wrong identity",
+  "wrong protocol",
+  "not ready",
+  "wrong device",
+  "wrong pid",
+  "restarted SpringBoard",
+  "pending injection",
+  "wrong injection target",
+  "missing injection",
+  "stale cache identity",
+  "missing cache",
+] as const) {
+  test(`prepared-only catalog fails closed without repair: ${stale}`, async () => {
+    const f = await fixture();
+    try {
+      assert.equal(
+        (await f.run({ udid: UDID, mode: "prepare" })).status,
+        "ready",
+      );
+      const session = path.join(f.dir, "global/sessions", UDID);
+      const injectionPath = path.join(session, "injection.json");
+      const injection = await fs.readFile(injectionPath, "utf8");
+      const live = { ...(await f.r.heartbeat(session))! };
+      if (stale === "missing heartbeat") f.r.heartbeat = async () => null;
+      else if (stale === "wrong identity") {
+        live.identity = "changed";
+        f.r.heartbeat = async () => live;
+      } else if (stale === "wrong protocol") {
+        live.protocol = 2;
+        f.r.heartbeat = async () => live;
+      } else if (stale === "not ready") {
+        live.ready = false;
+        f.r.heartbeat = async () => live;
+      } else if (stale === "wrong device") {
+        live.udid = "other";
+        f.r.heartbeat = async () => live;
+      } else if (stale === "wrong pid") {
+        live.pid = 456;
+        f.r.heartbeat = async () => live;
+      } else if (stale === "restarted SpringBoard") {
+        const command = f.r.command;
+        f.r.command = async (args, timeout) =>
+          args.includes("print") ? "pid = 456\n" : command(args, timeout);
+      } else if (stale === "pending injection")
+        await fs.writeFile(
+          injectionPath,
+          JSON.stringify({ ...JSON.parse(injection), pending: true }),
+        );
+      else if (stale === "wrong injection target")
+        await fs.writeFile(
+          injectionPath,
+          JSON.stringify({ ...JSON.parse(injection), target: "other" }),
+        );
+      else if (stale === "missing injection") await fs.rm(injectionPath);
+      else if (stale === "stale cache identity")
+        f.r.preparedWorker = async () => ["/existing/worker.dylib", "changed"];
+      else if (stale === "missing cache")
+        f.r.preparedWorker = async () => {
+          throw new (await import("../src/errors.js")).WidgetctlError(
+            "Missing cached worker",
+            { code: "HELPER_UNAVAILABLE" },
+          );
+        };
+      const before = await readJson(injectionPath);
+      await fs.writeFile(
+        path.join(session, "command.json"),
+        "existing protocol command",
+      );
+      f.commands.length = 0;
+      let builds = 0;
+      f.r.compileWorker = async () => {
+        builds++;
+        throw Error("compile forbidden");
+      };
+      const result = await f.run({
+        udid: UDID,
+        mode: "catalog",
+        requirePrepared: true,
+      });
+      assert.equal(result.status, "failed");
+      assert.equal(result.errorCode, "HELPER_UNAVAILABLE", result.error);
+      assert.equal(builds, 0);
+      assert.deepEqual(f.payloads, []);
+      assert.equal(
+        f.commands.some(
+          (command) =>
+            command.includes("debug") ||
+            command.includes("kickstart") ||
+            command.includes("-dynamiclib"),
+        ),
+        false,
+      );
+      assert.equal(
+        await fs.readFile(path.join(session, "command.json"), "utf8"),
+        "existing protocol command",
+      );
+      assert.deepEqual(await readJson(injectionPath), before);
+    } finally {
+      await f.dispose();
+    }
+  });
+}
+
+test("prepared-only catalog queries the live exact worker without compilation or changing injection state", async () => {
+  const f = await fixture();
+  try {
+    await f.run({ udid: UDID, mode: "prepare" });
+    const injectionPath = path.join(
+      f.dir,
+      "global/sessions",
+      UDID,
+      "injection.json",
+    );
+    const before = await fs.readFile(injectionPath, "utf8");
+    f.commands.length = 0;
+    f.r.compileWorker = async () => {
+      throw Error("compile forbidden");
+    };
+    f.r.loadIconstate = async () => {
+      throw Error("IconState read forbidden");
+    };
+    const command = f.r.command;
+    f.r.command = async (args, timeout) =>
+      args.includes("listapps")
+        ? "{}"
+        : args.includes("runtimes")
+          ? JSON.stringify({
+              runtimes: [
+                {
+                  identifier: "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+                  version: "27.0",
+                  isAvailable: true,
+                },
+              ],
+            })
+          : command(args, timeout);
+    f.r.requestWorker = async (_session, live, payload) => {
+      assert.equal(live.identity, "identity");
+      f.payloads.push(payload);
+      return [
+        {
+          status: "catalogued",
+          widgets: [
+            {
+              extension: "org.widgets",
+              container: "org.app",
+              kind: "Kind",
+              sizes: ["small"],
+            },
+          ],
+        },
+        0,
+      ];
+    };
+    const result = await f.run({
+      udid: UDID,
+      mode: "catalog",
+      requirePrepared: true,
+    });
+    assert.equal(result.status, "catalogued", result.error);
+    assert.equal(result.catalog.apps[0].widgets[0].target.container, "org.app");
+    assert.deepEqual(f.payloads, [{ mode: "catalog" }]);
+    assert.equal(await fs.readFile(injectionPath, "utf8"), before);
+    assert.equal(
+      f.commands.some(
+        (command) =>
+          command.includes("debug") ||
+          command.includes("kickstart") ||
+          command.includes("-dynamiclib"),
+      ),
+      false,
+    );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("requirePrepared is boolean and catalog-only", async () => {
+  const f = await fixture();
+  try {
+    for (const options of [
+      { udid: UDID, mode: "prepare" as const, requirePrepared: true },
+      { ...tuple, mode: "ensure" as const, requirePrepared: false },
+      {
+        udid: UDID,
+        mode: "catalog" as const,
+        requirePrepared: "true" as never,
+      },
+    ]) {
+      const result = await f.run(options);
+      assert.equal(result.errorCode, "INVALID_INPUT");
+    }
+    assert.deepEqual(f.commands, []);
   } finally {
     await f.dispose();
   }

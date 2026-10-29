@@ -42,6 +42,7 @@ Every simulator tool requires an explicit `udid` UUID. `widgetctl_devices` lists
 | `widgetctl_apps` | None | Installed apps |
 | `widgetctl_doctor` | None | Readiness checks |
 | `widgetctl_catalog` | None | Apps, widget kinds and supported sizes |
+| `widgetctl_wait_for_descriptor` | `target: {container, extension, kind, size}`, `timeoutMs` | Exact descriptor ready after first launch |
 | `widgetctl_installed` | None | Installed widget targets and icon identities |
 | `widgetctl_ensure` | `target: {container, extension, kind, size}`, optional `position: "top"` | Exact icon identity and target |
 | `widgetctl_configuration_describe` | `iconIdentifier` | Editable fields and types |
@@ -50,12 +51,14 @@ Every simulator tool requires an explicit `udid` UUID. `widgetctl_devices` lists
 | `widgetctl_configuration_apply` | `iconIdentifier`, edited `configuration`, original `expected` | Canonical saved configuration |
 | `widgetctl_remove` | `iconIdentifier` | Exact-instance removal result |
 
+`widgetctl_ensure` reports `visibility: "unverified"`: saved placement does not verify which Home Screen page is visible.
+
 `size` is `small`, `medium` or `large`, restricted to the widget's catalog support. Use `tools/list` for the actual JSON schemas. Extra arguments are rejected. Discovery tools do not install or launch apps; open the containing app once before catalog discovery.
 
 ## Add, edit and remove
 
 1. Call `widgetctl_devices`, reserve an available simulator and boot it with your existing simulator tooling if needed.
-2. Call `widgetctl_catalog` with that UDID. Use the returned app/extension/kind/size values in `widgetctl_ensure`; record its `iconIdentifier`.
+2. Call `widgetctl_catalog` with that UDID. Use the returned app/extension/kind/size values in `widgetctl_ensure`; record its `iconIdentifier`. For a known descriptor still registering after first launch, call `widgetctl_wait_for_descriptor` first with an explicit `timeoutMs`.
 3. Call `widgetctl_configuration_describe` and `widgetctl_configuration_export` for that exact icon. Keep the original export unchanged and edit a copy. Query entity fields through `widgetctl_configuration_choices` instead of guessing identifiers.
 4. Call `widgetctl_configuration_apply` with the draft and the unchanged original as `expected`. A stale original fails instead of overwriting a newer save. Use the returned canonical configuration and refresh exact identities from `widgetctl_installed` after saving.
 5. Verify saved values and inspect visible content using a native simulator driver or screenshot. When temporary testing is finished, restore original values and remove only the exact icons you created.
@@ -65,6 +68,8 @@ Successful tool responses include text JSON and matching `structuredContent`:
 ```json
 {"ok":true,"data":{"iconIdentifier":"RETURNED_UUID","target":{}}}
 ```
+
+Opaque diagnostic integers outside JSON's number representation use `{"$bigint":"9223372036854775809"}` to preserve their exact value. Canonical configuration exports still require finite JSON values.
 
 This example abbreviates `target`; real responses contain the complete target. Tool errors set `isError: true` and return `{"ok":false,"error":{"code":"...","message":"...","recovery":[],"retryable":false}}`. Follow the reported recovery. A failed, timed-out or cancelled write may already have completed; inspect current state before deciding what to do next.
 

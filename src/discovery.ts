@@ -1,4 +1,4 @@
-import plist from "plist";
+import * as plist from "plist";
 import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

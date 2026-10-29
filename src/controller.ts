@@ -1,3 +1,11 @@
+import {
+  descriptorWait,
+  readinessClock,
+  validatedCatalog,
+  type DescriptorTarget,
+  type DescriptorWaitOptions,
+  type ReadinessClock,
+} from "./readiness.js";
 import { WidgetctlError, classifyError } from "./errors.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
@@ -238,6 +246,10 @@ export interface WidgetHandle {
 export interface WidgetController {
   readonly udid: string;
   catalog(): Promise<WidgetCatalog>;
+  waitForWidgetDescriptor(
+    target: DescriptorTarget,
+    options: DescriptorWaitOptions,
+  ): Promise<void>;
   installedWidgets(): Promise<InstalledWidget[]>;
   getWidget(iconIdentifier: string): Promise<WidgetHandle>;
   prepare(): Promise<BackendResult>;
@@ -257,6 +269,7 @@ export function createController(
     options: BackendOptions,
   ) => Promise<BackendResult> = runOperation,
   metadataReader = readConfigurationMetadata,
+  descriptorClock: ReadinessClock = readinessClock,
 ): WidgetController {
   if (typeof options.udid !== "string" || !options.udid.trim())
     throw new WidgetctlError("An explicit simulator UDID is required", {
@@ -503,17 +516,40 @@ export function createController(
       return structuredClone(widget);
     });
   };
+  const queryCatalog = async (
+    requirePrepared = false,
+  ): Promise<WidgetCatalog> =>
+    validatedCatalog(
+      (await run("catalog", requirePrepared ? { requirePrepared: true } : {}))
+        .catalog,
+    );
   const controller: WidgetController = {
     udid: settings.udid,
-    catalog: () =>
-      serialize(async () => {
-        const result = await run("catalog");
-        if (!result.catalog || !Array.isArray(result.catalog.apps))
-          throw new WidgetctlError("Backend did not return a widget catalog", {
-            result,
-          });
-        return structuredClone(result.catalog) as WidgetCatalog;
-      }),
+    catalog: () => serialize(queryCatalog),
+    waitForWidgetDescriptor: (target, waitOptions) =>
+      snapshotAndSerialize(
+        () => {
+          const selected = validateTarget(target);
+          if (!selected.container)
+            throw new WidgetctlError(
+              "Descriptor wait requires an explicit container",
+              { code: "INVALID_INPUT" },
+            );
+          const exact: DescriptorTarget = {
+            container: selected.container,
+            extension: selected.extension,
+            kind: selected.kind,
+            size: selected.size,
+          };
+          return descriptorWait(
+            settings.udid,
+            exact,
+            waitOptions,
+            descriptorClock,
+          );
+        },
+        (wait) => wait(() => queryCatalog(true)),
+      ),
     installedWidgets: () => serialize(listInstalled),
     getWidget: (iconIdentifier) =>
       snapshotAndSerialize(

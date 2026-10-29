@@ -20,6 +20,7 @@ import { compactText, uniqueNames, mark, titleCase } from "./human.js";
 import { command } from "./backend-runtime.js";
 import { doctor } from "./doctor.js";
 import { WidgetctlError, classifyError } from "./errors.js";
+import { diagnosticJson } from "./diagnostic-json.js";
 import {
   createPrompts,
   terminalText,
@@ -144,7 +145,7 @@ export async function runCli(
   process.once("SIGINT", interrupt);
   const emit = (result: Record<string, unknown>) =>
     runtime.stdout(
-      `${JSON.stringify({ schemaVersion: 1, ...result }).replace(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`)}\n`,
+      `${diagnosticJson({ schemaVersion: 1, ...result }).replace(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`)}\n`,
     );
   try {
     const { values, positionals } = parseArgs({
@@ -531,6 +532,7 @@ export async function runCli(
             status: "verified",
             target: handle.target,
             iconIdentifier: handle.iconIdentifier,
+            visibility: "unverified",
           };
         } else {
           let icon = values.widget;

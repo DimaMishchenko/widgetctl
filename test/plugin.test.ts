@@ -93,6 +93,7 @@ const handshake = async (server: string, cwd: string) => {
       "widgetctl_ensure",
       "widgetctl_installed",
       "widgetctl_remove",
+      "widgetctl_wait_for_descriptor",
     ],
   );
   return protocol;

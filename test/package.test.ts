@@ -149,18 +149,26 @@ async function check(): Promise<WidgetConfiguration> {
 void check;
 `,
     );
-    const typecheck = (types?: string) =>
-      execute(
-        process.execPath,
-        [
-          join(root, "node_modules/typescript/bin/tsc"),
-          "-p",
-          config,
-          ...(types ? ["--types", types] : []),
-        ],
-        { cwd: directory },
-      );
-    await typecheck();
+    const typecheck = async (
+      stage: string,
+      types?: string,
+      compiler = join(root, "node_modules/typescript/bin/tsc"),
+    ) => {
+      try {
+        await execute(
+          process.execPath,
+          [compiler, "-p", config, ...(types ? ["--types", types] : [])],
+          { cwd: directory },
+        );
+      } catch (error) {
+        const failure = error as { stdout?: string; stderr?: string };
+        console.error(
+          `Consumer typecheck failed (${stage}):\n${failure.stdout ?? ""}${failure.stderr ?? ""}`,
+        );
+        throw error;
+      }
+    };
+    await typecheck("core");
     const installedVersion = async (name: string) =>
       (
         JSON.parse(
@@ -205,7 +213,7 @@ const combined = base.extend<{}, WidgetWorkerFixtures>(widgetFixtures);
 combined.use({ widgetctlOptions: { udid: '00000000-0000-0000-0000-000000000000' } });
 `,
     );
-    await typecheck("node");
+    await typecheck("current Playwright", "node");
     await execute(
       "npm",
       [
@@ -214,14 +222,67 @@ combined.use({ widgetctlOptions: { udid: '00000000-0000-0000-0000-000000000000' 
         "--no-audit",
         "--no-fund",
         "@playwright/test@1.50.0",
+        "typescript@5.9.3",
+        "@types/node@22.19.0",
       ],
       npmOptions,
     );
-    await typecheck("node");
+    const legacyCompiler = join(directory, "node_modules/typescript/bin/tsc");
+    const legacyVersion = await execute(process.execPath, [
+      legacyCompiler,
+      "--version",
+    ]);
+    assert.equal(legacyVersion.stdout.trim(), "Version 5.9.3");
+    await typecheck(
+      "Playwright 1.50 with TypeScript 5.9",
+      "node",
+      legacyCompiler,
+    );
     await execute(
       process.execPath,
       ["--input-type=module", "--eval", "await import('widgetctl/playwright')"],
       { cwd: directory },
+    );
+    const events = join(directory, "legacy-events.jsonl");
+    await writeFile(
+      join(directory, "playwright.config.cjs"),
+      `module.exports = { testDir: '.', testMatch: 'legacy.spec.cjs', workers: 1, reporter: 'line' };`,
+    );
+    await writeFile(
+      join(directory, "legacy.spec.cjs"),
+      `const { test: base, expect } = require('@playwright/test');
+const { createWidgetFixtures } = require(${JSON.stringify(join(directory, "node_modules/widgetctl/dist/playwright-fixtures.js"))});
+const { appendFileSync } = require('node:fs');
+const event = (mode) => appendFileSync(${JSON.stringify(events)}, JSON.stringify(mode) + '\\n');
+const test = base.extend(createWidgetFixtures(options => ({
+  udid: options.udid,
+  prepare: async () => { event('prepare'); return { status: 'ready' }; },
+  release: async () => { event('release'); return { status: 'unloaded' }; },
+}))).extend({ driver: async ({}, use) => {
+  event('driver-connect'); await use({}); event('driver-close');
+} });
+test.use({ widgetctlOptions: { udid: 'explicit-owned-device' } });
+test('legacy worker lifecycle', async ({ driver, widgets }) => {
+  event('test'); expect(widgets.udid).toBe('explicit-owned-device'); expect(driver).toEqual({});
+});
+`,
+    );
+    await execute(
+      process.execPath,
+      [
+        join(directory, "node_modules/@playwright/test/cli.js"),
+        "test",
+        "--config",
+        join(directory, "playwright.config.cjs"),
+      ],
+      { cwd: directory, timeout: 30000 },
+    );
+    assert.deepEqual(
+      (await readFile(events, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+      ["prepare", "driver-connect", "test", "driver-close", "release"],
     );
   } finally {
     await rm(directory, { recursive: true, force: true });

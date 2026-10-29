@@ -227,7 +227,14 @@ test("labels fall back to actual keys and unsupported entity arrays keep their v
 });
 
 test("nonfinite, non-JSON and excessively recursive canonical values are rejected", () => {
-  for (const value of [NaN, Infinity, undefined, new Date(), () => {}])
+  for (const value of [
+    NaN,
+    Infinity,
+    9_223_372_036_854_775_809n,
+    undefined,
+    new Date(),
+    () => {},
+  ])
     assert.throws(
       () =>
         describeFromMetadata(
@@ -327,7 +334,7 @@ test("installed extension tables resolve regional locales, binary strings and en
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const os = await import("node:os");
-  const { default: plist } = await import("plist");
+  const plist = await import("plist");
   const { resolveMetadataLabels } = await import("../src/configuration.js");
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "widgetctl-labels-"));
   try {
