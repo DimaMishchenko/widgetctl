@@ -1,55 +1,47 @@
+![Add and edit a widget with widgetctl](docs/assets/usage.gif)
+
 # widgetctl
 
-Add, find and configure Home Screen widgets on iOS Simulator from a terminal, TypeScript, or Playwright. widgetctl verifies saved state; use your native UI driver to verify what the widget renders.
+**Set up iOS Simulator widgets without clicking through the widget gallery.**
 
-Experimental. Live coverage includes arm64 iPhone simulators on iOS 26.0, 27.0 and Duo 27.1, including native entity suggestions, search and dependent choices. Other runtimes, iPad and Intel are unverified. Stacks, Lock Screen widgets and physical devices are unsupported.
+Pick an app, widget and size in your terminal. Edit its settings, reproduce a test setup, or automate it from TypeScript and Playwright.
+
+[![Tests](https://github.com/DimaMishchenko/widgetctl/actions/workflows/test.yml/badge.svg)](https://github.com/DimaMishchenko/widgetctl/actions/workflows/test.yml) [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Install
 
-Requires macOS, Node 22.14+, full Xcode, and an installed widget app. Launch the app once so its widgets can register. Reserve one simulator per test worker.
+Requires **macOS, Node 22.14+ and full Xcode**. Install your app on a simulator and open it once so its widgets can register.
 
-The package is not published on npm yet:
+Until the first npm release, install from GitHub:
 
 ```sh
 npm install --save-dev github:DimaMishchenko/widgetctl
 ```
 
-Pin a reviewed commit with `github:DimaMishchenko/widgetctl#COMMIT_SHA` and commit your lockfile for reproducible tests.
+Pin `github:DimaMishchenko/widgetctl#COMMIT_SHA` in automated tests. [Release and distribution plan →](docs/distribution.md)
 
-## Use the terminal
+## CLI
 
 ```sh
 npx --no-install widgetctl
 ```
 
-Choose **Add widget**, **Edit widget**, or **Remove widget**. **More** contains browsing, installed widgets, details, import/export and diagnostics. Select your simulator and approve the session, including booting it if needed and briefly restarting its Home Screen. The session keeps that simulator ready; **Change simulator**, **Exit**, or Ctrl-C releases the helper.
+Choose your simulator, then **Add widget** or **Edit widget**. The pickers show installed apps, widget names and supported sizes. Settings stay in a draft until you choose **Save changes**. **More** holds details, import/export and diagnostics.
 
-The editor shows current values and pending changes inline. **Save changes · N** applies the draft; **Back** asks before discarding unsaved changes. **Advanced…** offers raw JSON, explicit null and parameter removal. Use arrow keys for short lists and type to search longer lists. Set `NO_COLOR=1` to disable color or `WIDGETCTL_NO_EMOJI=1` for plain symbols.
-
-Check your setup without changing it:
-
-```sh
-npx --no-install widgetctl doctor
-```
-
-## Use scripts and agents
-
-Replace placeholders with values returned by `devices`, `catalog` and `list`. Supply `--json` for one structured result and no prompts. `--device` claims an explicitly owned, already booted simulator; preparation and release may restart its UI.
+For scripts and agents, use explicit arguments and `--json`:
 
 ```sh
 npx --no-install widgetctl devices --json
-export SIMULATOR_UDID='YOUR_OWNED_BOOTED_SIMULATOR_UUID'
 npx --no-install widgetctl catalog --device "$SIMULATOR_UDID" --json
 npx --no-install widgetctl add --device "$SIMULATOR_UDID" \
-  --app 'YOUR_APP_BUNDLE_ID' --kind 'YOUR_CATALOG_KIND' --size medium --json
-npx --no-install widgetctl list --device "$SIMULATOR_UDID" --json
-npx --no-install widgetctl export --device "$SIMULATOR_UDID" \
-  --widget 'YOUR_EXACT_ICON_UUID' --file widget.json --json
+  --app com.example.weather --kind Forecast --size medium --json
 ```
 
-Apply an edited complete export with `configure`, or remove an exact icon with `remove`. Run `widgetctl --help` for all options. Connect UI drivers only after preparation; use the TypeScript or Playwright lifecycle when a driver must remain connected across operations.
+Set `SIMULATOR_UDID` to your reserved, booted simulator and replace the example app/kind with values from `catalog`. JSON mode never prompts. [CLI and configuration guide →](docs/usage.md)
 
-## Use TypeScript
+## TypeScript
+
+Use identifiers from your app’s catalog:
 
 ```ts
 import { createWidgetController } from "widgetctl";
@@ -57,11 +49,9 @@ import { createWidgetController } from "widgetctl";
 const widgets = createWidgetController({ udid: process.env.SIMULATOR_UDID! });
 try {
   await widgets.prepare();
-  const catalog = await widgets.catalog();
-  console.log(catalog);
   const widget = await widgets.ensure({
-    extension: process.env.WIDGET_EXTENSION!,
-    kind: process.env.WIDGET_KIND!,
+    extension: "com.example.weather.widgets",
+    kind: "Forecast",
     size: "medium",
   });
   console.log(widget.iconIdentifier);
@@ -70,4 +60,45 @@ try {
 }
 ```
 
-[Usage guide](docs/usage.md) · [Runnable examples](examples/README.md) · [Diagnostics and errors](docs/errors.md) · [Compatibility](docs/compatibility.md) · [Performance](docs/performance.md) · [Release checklist](docs/release-checklist.md) · [Contributing](CONTRIBUTING.md)
+`ensure` reuses a matching widget. Handles can export, describe and apply supported configurations, or remove that exact widget. [API examples →](examples/README.md)
+
+## Playwright
+
+Install the optional test runner with `npm install --save-dev @playwright/test`. The fixture prepares and releases widgetctl for you.
+
+```ts
+import { test, expect } from "widgetctl/playwright";
+
+test("forecast widget is configured", async ({ widgets }) => {
+  const widget = await widgets.ensure({
+    extension: "com.example.weather.widgets",
+    kind: "Forecast",
+    size: "medium",
+  });
+  const settings = await widget.exportConfiguration();
+  const applied = await widget.applyConfiguration(settings);
+  expect(await widget.exportConfiguration()).toEqual(applied);
+});
+```
+
+Set `workers: 1` and `use.widgetctlOptions.udid` in your [Playwright config](examples/playwright/playwright.config.ts). This checks saved configuration; use a native UI driver to assert rendered content. A browser `page` cannot control the Home Screen.
+
+## Agent skill and plugins
+
+The short [widgetctl skill](skills/widgetctl/SKILL.md) teaches agents when to use the tool, JSON discovery, safe configuration edits and simulator ownership.
+
+Add this repository as a Codex marketplace:
+
+```sh
+codex plugin marketplace add DimaMishchenko/widgetctl
+```
+
+Then install **widgetctl** from that marketplace in the desktop Plugins directory. The plugin supplies instructions; install the CLI in your project separately using the command above. [Codex, Claude Code and skill-only setup →](docs/agents.md)
+
+## Support
+
+Experimental; uses Apple private APIs. Live coverage includes arm64 iPhone simulators on **iOS 26.0, 27.0 and Duo 27.1**. Other runtimes, iPad and Intel are unverified. Physical devices, stacks and Lock Screen widgets are unsupported.
+
+Reserve one simulator per worker. Preparation and release may restart its Home Screen. Always release in `finally`, and connect native UI drivers after preparation.
+
+[Usage](docs/usage.md) · [Examples](examples/README.md) · [Troubleshooting](docs/errors.md) · [Compatibility](docs/compatibility.md) · [Performance](docs/performance.md) · [Contributing](CONTRIBUTING.md)

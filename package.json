@@ -31,7 +31,11 @@
     "CONTRIBUTING.md",
     "docs",
     "examples",
-    "LICENSE"
+    "LICENSE",
+    "skills",
+    "plugin.json",
+    ".agents/plugins/marketplace.json",
+    ".claude-plugin"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -44,7 +48,8 @@
     "test:playwright": "npm run build && node --import tsx --test test/playwright.test.ts",
     "test:examples": "npm run build && tsc -p examples/tsconfig.json && bash -n examples/cli.sh",
     "benchmark": "node --import tsx scripts/benchmark.ts",
-    "test:performance": "tsc -p scripts/tsconfig.json && node --import tsx --test test/performance.test.ts"
+    "test:performance": "tsc -p scripts/tsconfig.json && node --import tsx --test test/performance.test.ts",
+    "pack:plugin": "python3 scripts/package-plugin.py"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.5",

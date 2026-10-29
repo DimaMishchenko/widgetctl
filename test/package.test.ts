@@ -25,6 +25,15 @@ test("packed package ships linked docs and supports core and optional Playwright
     const files = packed.files.map((file: { path: string }) => file.path);
     for (const expected of [
       "LICENSE",
+      "plugin.json",
+      ".agents/plugins/marketplace.json",
+      ".claude-plugin/plugin.json",
+      ".claude-plugin/marketplace.json",
+      "skills/widgetctl/SKILL.md",
+      "skills/widgetctl/agents/openai.yaml",
+      "docs/assets/usage.gif",
+      "docs/agents.md",
+      "docs/distribution.md",
       "native/worker.m",
       "dist/index.js",
       "dist/index.d.ts",

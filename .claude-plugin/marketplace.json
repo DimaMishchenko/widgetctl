@@ -1,0 +1,13 @@
+{
+  "name": "widgetctl",
+  "owner": {
+    "name": "Dima Mishchenko"
+  },
+  "plugins": [
+    {
+      "name": "widgetctl",
+      "source": "./",
+      "description": "Set up iOS Simulator Home Screen widgets with the local widgetctl CLI and API."
+    }
+  ]
+}

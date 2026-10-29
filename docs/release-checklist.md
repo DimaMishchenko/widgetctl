@@ -83,6 +83,17 @@ These checks apply to the redesigned CLI and editor. Check them only after recor
 - [x] Ship the fixture acceptance walkthrough and capture example, including native query checks and required visual inspection. The Playwright example accepts an app-specific native assertion module; it skips rendered assertions until one is supplied.
 - [ ] Add automated release staging/provenance checks once the publishing identity is established.
 
+## Documentation and agent distribution
+
+The [distribution plan](distribution.md) is the source of truth for npm bootstrap, plugin channels, version alignment and rollback. The README is the product home; no separate site is planned.
+
+- [x] README includes a small GIF replayed from a real CLI recording and CLI, TypeScript and Playwright entry points.
+- [x] One short, canonical `skills/widgetctl` skill is shared by OpenAI Agent Plugins and the Claude adapter.
+- [x] The OpenAI manifest declares local execution; the plugin does not install a CLI or expose a cloud simulator service.
+- [x] `npm run pack:plugin` builds a version-matched, reproducible ZIP and SHA-256 checksum without publishing. Tests verify package contents and prevent version drift.
+- [ ] Verify Codex and Claude installation from the exact release tag, including invoking the skill with the separately installed CLI. Schema and package checks do not replace host installation.
+- [ ] If seeking a public OpenAI listing, complete desktop-only submission checks and publisher review. Repository marketplace availability is a separate channel.
+
 ## Release commands to prepare the artifact
 
 Run from a clean checkout of the intended release commit. The first block does not publish:

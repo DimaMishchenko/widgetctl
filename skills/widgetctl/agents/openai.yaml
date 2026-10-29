@@ -1,0 +1,4 @@
+interface:
+  display_name: "widgetctl"
+  short_description: "Set up iOS Simulator widgets for tests"
+  default_prompt: "Use $widgetctl to set up a Home Screen widget on my owned iOS simulator and verify its saved configuration."
