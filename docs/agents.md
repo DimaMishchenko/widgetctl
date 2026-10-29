@@ -31,7 +31,7 @@ The [skills CLI](https://github.com/vercel-labs/skills) requires Node 22.20+:
 npx skills add DimaMishchenko/widgetctl --skill widgetctl
 ```
 
-The skill also has a public [Tessl listing](https://tessl.io/registry/skills/github/DimaMishchenko/widgetctl/widgetctl). Tessl installs the complete skill and runtime bundle. Pin its source commit:
+The skill also has a public [Tessl listing](https://tessl.io/registry/skills/github/DimaMishchenko/widgetctl/widgetctl). Tessl installs the complete skill and runtime bundle from GitHub:
 
 ```sh
 npx tessl i github:DimaMishchenko/widgetctl --skill widgetctl
