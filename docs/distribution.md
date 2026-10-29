@@ -61,6 +61,19 @@ Before 1.0, preserve API/CLI behavior within `0.1.x`; document breaking changes 
 
 For a bad release, stop rollout, document the affected versions, and publish a fixed patch. If needed, deprecate the affected npm version and move the registry tag to the last verified version. Update the plugin marketplace to a known-good version. Avoid rewriting published Git tags. Plugin uninstall and npm uninstall are separate operations.
 
+## What the maintainer needs to provide
+
+| Channel | Needed before release |
+| --- | --- |
+| npm library and CLI | npm account with 2FA, permission to publish the chosen name, and approval of the first version; configure a trusted publisher after bootstrap |
+| GitHub-based skills and plugins | Public repository and a reviewed version/tag; no separate server or registry account |
+| skills.sh discovery | Optional: the same public skill repository works with `npx skills add DimaMishchenko/widgetctl`; see the [skills CLI](https://skills.sh/docs/cli) |
+| OpenAI public plugin directory | Optional: verified publisher identity, submission access and review; follow the [submission guide](https://developers.openai.com/plugins/deploy/submission) |
+
+Use `widgetctl` if npm grants the publishing name; otherwise choose a scoped name such as `@YOUR_NPM_ACCOUNT/widgetctl` and update installation instructions. A registry 404 is not proof that a name can be registered. Do not share passwords, npm tokens or 2FA codes in a chat; complete account login using the client’s own authentication flow.
+
 ## Demo maintenance
 
-The README GIF is trimmed and sped up from a real terminal session. `scripts/render-demo.py` pairs that recording with real simulator captures in the committed asset; it does not invent CLI output. Pass `--before-simulator before.png --after-simulator after.png` with the recording path. Use `--widget-crop LEFT TOP RIGHT BOTTOM` for a readable native widget close-up; `--after-widget-crop` supports separately captured layouts, and `--widget-detail-only` avoids implying that saving moved a widget. The widget retains its before image until the saved-success frame. Re-record the CLI on a disposable simulator when its interface changes. Preserve the recording as release evidence, inspect key frames, and keep the GIF small enough for a README. Rendering is a maintainer task requiring Python with Pillow and macOS system fonts; Pillow is not a widgetctl runtime dependency.
+The README GIF shows the recorded CLI beside an entire, uncropped simulator screen. `scripts/render-demo.py` requires a terminal recording plus `--before-simulator before.png --after-simulator after.png`; crop/detail-only modes are intentionally unsupported. The before screenshot remains visible throughout the draft; the saved-result capture appears only on the save-success frame. Separately recorded native captures are labelled as such, so the GIF does not claim to be a synchronized screen recording.
+
+Re-record on a disposable simulator when the interface changes. Preserve source recordings and captures as release evidence, inspect key frames, and keep the GIF below 1 MB when possible. Rendering requires Python with Pillow and macOS system fonts; Pillow is not a widgetctl runtime dependency.

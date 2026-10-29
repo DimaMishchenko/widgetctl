@@ -53,6 +53,14 @@ The [Claude adapter](https://code.claude.com/docs/en/plugins-reference) discover
 
 ### Skill only
 
+The optional [skills CLI](https://github.com/vercel-labs/skills) (Node 22.20+) can install the skill directly from this public repository:
+
+```sh
+npx skills add DimaMishchenko/widgetctl
+```
+
+This installs agent instructions, not widgetctl’s CLI. It is an alternative to plugin installation.
+
 For an agent that supports local `SKILL.md` skills, copy `skills/widgetctl` from a reviewed checkout into that agent’s documented skill location. For a Codex project, use `.agents/skills/widgetctl`. The skill is self-contained; copying the entire repository is unnecessary. This is an alternative to plugin installation, not an additional requirement.
 
 ## 3. Ask for a widget setup
