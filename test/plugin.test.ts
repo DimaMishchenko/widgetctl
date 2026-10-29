@@ -23,6 +23,15 @@ test("plugin identities and desktop requirement agree across install channels", 
     assert.equal(manifest.version, pkg.version);
   }
   assert.equal(portable.extensions["com.openai"].requires_local_executor, true);
+  const ui = portable.extensions["com.openai"].interface;
+  assert.ok(ui.shortDescription.length <= 30);
+  for (const key of ["logo", "composerIcon"]) {
+    assert.equal(ui[key], "./assets/plugin-icon.svg");
+    assert.match(
+      await readFile(new URL(ui[key], root), "utf8"),
+      /viewBox="0 0 128 128"/,
+    );
+  }
   assert.equal(codexMarket.plugins[0].source.path, "./");
   assert.equal(claudeMarket.plugins[0].source, "./");
   assert.equal(codexMarket.plugins[0].name, pkg.name);
@@ -56,6 +65,7 @@ test("plugin ZIP is reproducible, self-contained and excludes the CLI and local 
         ".claude-plugin/marketplace.json",
         ".claude-plugin/plugin.json",
         "LICENSE",
+        "assets/plugin-icon.svg",
         "plugin.json",
         "skills/widgetctl/SKILL.md",
         "skills/widgetctl/agents/openai.yaml",

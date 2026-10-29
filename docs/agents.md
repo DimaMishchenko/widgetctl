@@ -5,20 +5,20 @@ Widgetctl runs on a local Mac with Node 22.14+, full Xcode and an iOS Simulator.
 ## 1. Install the CLI
 
 ```sh
-npm install --save-dev github:DimaMishchenko/widgetctl
+npm install --save-dev widgetctl
 npx widgetctl --help
 ```
 
 For a standalone terminal command, install globally instead:
 
 ```sh
-npm install --global github:DimaMishchenko/widgetctl
+npm install --global widgetctl
 widgetctl --help
 ```
 
 The global install provides the CLI. TypeScript and Playwright projects still need their own `widgetctl` dependency so imports resolve.
 
-For repeatable automation, pin the dependency to a reviewed Git commit and keep your lockfile. The npm release is still planned; use the GitHub installation above until it exists.
+For repeatable automation, install `widgetctl@0.1.0` and keep your lockfile.
 
 ## 2. Install the skill through your agent
 
@@ -38,7 +38,7 @@ On Codex CLI versions exposing `codex plugin add`, you can instead install with:
 codex plugin add widgetctl@widgetctl
 ```
 
-Check `codex plugin --help` if your client differs. To pin marketplace source, use `codex plugin marketplace add DimaMishchenko/widgetctl --ref COMMIT_OR_TAG`, replacing the placeholder with a reviewed revision. Register a local checkout with `codex plugin marketplace add /absolute/path/to/widgetctl` when testing unpublished changes.
+Check `codex plugin --help` if your client differs. For the reproducible 0.1.0 plugin source, use `codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.0`. Register a local checkout with `codex plugin marketplace add /absolute/path/to/widgetctl` when testing unpublished changes.
 
 ### Claude Code
 
@@ -83,4 +83,4 @@ Use the TypeScript API or Playwright fixture when a native driver must remain co
 
 There are no network connectors, remote MCP servers, lifecycle hooks, auto-install scripts, credentials or extra permissions to configure. Installing a skill grants no new shell access; the agent still uses its host’s normal execution permissions.
 
-The package schema and install manifests are checked locally. Marketplace discovery/installation support varies by client version. Public OpenAI directory approval is a separate release step; this repository does not claim an approved public listing. See the [distribution plan](distribution.md).
+The package schema and install manifests are checked locally. Marketplace discovery/installation support varies by client version. Public OpenAI directory approval is a separate release step; this repository does not claim an approved public listing. See [distribution and releases](distribution.md).

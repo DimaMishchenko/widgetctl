@@ -11,7 +11,7 @@ Use widgetctl for deterministic widget setup, exact identities and saved configu
 
 Requires macOS, Node 22.14+, full Xcode and an installed widget app. Launch the containing app once before catalog discovery. The plugin supplies this skill, not the executable.
 
-For a project install use `npx widgetctl --help`; for a global install use `widgetctl --help`. If absent and setup is requested, install as a project dev dependency from `github:DimaMishchenko/widgetctl#<reviewed-commit-sha>` and preserve the lockfile. Resolve the placeholder before running npm. A standalone global CLI install is also supported; TypeScript and Playwright imports need a project dependency. Run `npx widgetctl doctor --json` to check the host without changing it.
+For a project install use `npx widgetctl --help`; for a global install use `widgetctl --help`. If absent and setup is requested, run `npm install --save-dev widgetctl` and preserve the lockfile. Use `widgetctl@0.1.0` for a reproducible release install. A standalone global CLI install is also supported; TypeScript and Playwright imports need a project dependency. Run `npx widgetctl doctor --json` to check the host without changing it.
 
 Reserve one simulator per worker and use its explicit, already booted UDID. Preparation and release can restart that simulator's Home Screen. Connect native UI drivers after preparation and close them before release. Never restart global simulator services or remove another owner's locks.
 

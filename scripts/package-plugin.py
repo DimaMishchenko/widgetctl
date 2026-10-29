@@ -16,6 +16,7 @@ def package_plugin(root, output):
         ".agents/plugins/marketplace.json",
         ".claude-plugin/marketplace.json",
         "LICENSE",
+        "assets/plugin-icon.svg",
     ]
     skill_root = root / "skills"
     for path in sorted(skill_root.rglob("*")):

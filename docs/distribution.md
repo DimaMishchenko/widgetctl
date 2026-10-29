@@ -1,33 +1,34 @@
 # Distribution
 
-The README is the product’s home. Keep guides, examples, screenshots and install instructions in this repository; no separate site is needed.
+The README is the product’s home. Keep guides, examples, screenshots and install instructions in this repository.
 
-## What ships
+## Channels
 
-| Artifact                | Purpose                                              | Current route                                        |
-| ----------------------- | ---------------------------------------------------- | ---------------------------------------------------- |
-| `widgetctl` npm package | TypeScript library, CLI, optional Playwright fixture | GitHub dependency until the first npm release        |
-| Agent plugin            | Short skill and host metadata                        | This repository’s Codex and Claude Code marketplaces |
-| Standalone skill        | Instructions for other skill-compatible local agents | Copy `skills/widgetctl`                              |
+| Artifact                                     | Install route                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------------ |
+| Library, CLI and optional Playwright fixture | `npm install --save-dev widgetctl`                                       |
+| Standalone CLI                               | `npm install --global widgetctl`                                         |
+| Codex or Claude Code plugin                  | This repository’s marketplaces; see [agent setup](agents.md)             |
+| Standalone skill                             | Copy `skills/widgetctl` or use `npx skills add DimaMishchenko/widgetctl` |
 
-One repository, one version. `package.json`, `plugin.json` and the Claude compatibility manifest must agree. Plugins contain agent instructions, not an npm installation or a remote simulator service. They need a local Mac execution environment with Xcode and an explicitly reserved simulator.
+Choose a project or global CLI install. TypeScript and Playwright imports require a project dependency. `widgetctl/playwright` is an import subpath of `widgetctl`; install `widgetctl @playwright/test` in a Playwright project.
 
-## Available now
+Plugins and standalone skills supply instructions, not the CLI or a remote simulator service. Choose one skill installation route; plugin installation does not also require copying the skill. All execution needs a local Mac with Xcode and an explicitly reserved simulator.
 
-Install the library and CLI together:
+For reproducible 0.1.0 setup, install `widgetctl@0.1.0`, preserve the lockfile, and pin the Codex marketplace source:
 
 ```sh
-npm install --save-dev github:DimaMishchenko/widgetctl
-npx widgetctl --help
+codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.0
 ```
 
-Pin a reviewed commit for CI. Add the agent plugin separately using [agent setup](agents.md). Do not advertise an npm installation command or public plugin-directory listing before those artifacts are actually published.
+The public OpenAI plugin directory is **not yet published**. Repository marketplace installation is a separate channel. A public listing requires a verified publisher identity, package validation, submission and approval; follow the [submission guide](https://developers.openai.com/plugins/deploy/submission) and [desktop-only requirements](https://developers.openai.com/plugins/deploy/desktop-only). Do not claim cloud execution without a local Mac executor.
 
-## First release
+## Maintainer release process
 
-1. Confirm npm package ownership, publisher identity and the first version. The current `0.1.0` is a candidate, not a published release.
-2. Choose a clean commit. Run the [release checklist](release-checklist.md), including Linux/macOS × Node 22.14/24 CI, packed-consumer imports/types, and native verification of that same tarball.
-3. Build the two deliverables from that commit:
+One repository, one version: keep `package.json`, `plugin.json` and the Claude compatibility manifest aligned. The root manifest uses [Agent Plugins 1.0 packaging](https://developers.openai.com/plugins/build/plugins); the Claude adapter points to the same skill.
+
+1. Choose the final clean commit and complete the [release checklist](release-checklist.md), including CI, packed-consumer imports/types and native rendered verification of the same tarball.
+2. Build both deliverables:
 
    ```sh
    npm ci
@@ -39,38 +40,19 @@ Pin a reviewed commit for CI. Add the agent plugin separately using [agent setup
    npm run pack:plugin
    ```
 
-   Retain the npm tarball and `.local/release/widgetctl-plugin-VERSION.zip` with their SHA-256 hashes. Inspect the plugin ZIP; it must contain only the skill, manifests and license, with `plugin.json` at the archive root.
+   Retain the npm tarball and `.local/release/widgetctl-plugin-VERSION.zip` with SHA-256 hashes. Inspect the plugin ZIP: only the skill, manifests, referenced icon assets and license belong in it, with `plugin.json` at the root.
 
-4. Resolve first-package bootstrap with the npm owner before choosing publishing credentials. [npm trust requires an existing package](https://docs.npmjs.com/cli/v11/commands/npm-trust/); do not assume a new package can immediately publish with OIDC. npm’s [staging flow](https://docs.npmjs.com/creating-and-publishing-unscoped-public-packages/) can create a public placeholder for a new package. Treat that as a publishing action needing explicit release approval. For subsequent releases, configure [trusted publishing](https://docs.npmjs.com/trusted-publishers/) against an actual, reviewed GitHub workflow and publisher identity. A local `npm pack` does not prove publishing permissions or provenance.
-5. Publish the reviewed npm tarball through the approved bootstrap/publishing route. Verify fresh registry installation and the actual provenance result; do not claim provenance for a local authenticated publish that did not generate it. Then create the matching `vVERSION` Git tag and GitHub release. Attach the already verified tarball, plugin ZIP, hashes and concise release notes. This plan does not publish anything automatically.
-6. Update README installation to the real npm version. Verify its CLI, both imports and native behavior before recommending it. Re-test Codex/Claude marketplace installation from the same tag, then document the pinned plugin version.
+3. Confirm npm publisher access and publish the reviewed tarball. Use an approved publishing route; configure [trusted publishing](https://docs.npmjs.com/trusted-publishers/) against the actual release workflow when available. Verify fresh registry installation, CLI execution, both imports and the actual provenance result. Local packing alone proves neither publishing permission nor provenance.
+4. Create the matching `vVERSION` tag and GitHub release from that commit. Attach the verified tarball, plugin ZIP, hashes and concise release notes with the supported Xcode/simulator matrix and private-API limitations.
+5. Verify marketplace installation from the matching tag and update version pins. Public-directory submission remains a separate process through the verified publisher’s account.
 
-Keep the first release maintainer-triggered while publishing identities and native acceptance are being established. Once package ownership and a working trusted publisher are established, use a gated release workflow: require a version/tag match, successful final-commit CI, reviewed native evidence and a protected approval environment. Give `id-token: write` only to the publish job; avoid stored npm write tokens.
-
-## Plugin channels
-
-The repo marketplaces are the initial channel. Users can track the main branch during development or pin a verified tag/commit. Keep the plugin’s version aligned with the CLI it was tested against, and document mismatches rather than silently downloading another tool version.
-
-The root manifest uses [Agent Plugins 1.0 packaging supported by OpenAI](https://developers.openai.com/plugins/build/plugins). A small Claude adapter points to the same skill. No MCP endpoint, lifecycle hook, connector, credentials or background installer is needed.
-
-A public OpenAI directory listing is a later channel, not a prerequisite. Widgetctl needs desktop execution; follow the [desktop-only submission requirements](https://developers.openai.com/plugins/deploy/desktop-only) and [submission process](https://developers.openai.com/plugins/deploy/submission). Verify publisher identity, package validation, review materials and actual local execution before submission. Do not claim availability in cloud ChatGPT sessions that lack a local Mac executor. Marketplace registration and schema validation are not public-directory approval.
+Keep releases maintainer-triggered until publishing identities and native acceptance are established. A later automated release workflow must gate publishing on version/tag agreement, successful final-commit CI, reviewed native evidence and a protected approval environment. Limit `id-token: write` to the publish job.
 
 ## Version and recovery policy
 
-Before 1.0, preserve API/CLI behavior within `0.1.x`; document breaking changes in a minor release. Record the supported Xcode/simulator matrix and private-API limitations with every release.
+Before 1.0, preserve API/CLI behavior within `0.1.x`; document breaking changes in a minor release. Keep plugin versions aligned with the CLI they were tested against, and document mismatches rather than silently downloading another version.
 
-For a bad release, stop rollout, document the affected versions, and publish a fixed patch. If needed, deprecate the affected npm version and move the registry tag to the last verified version. Update the plugin marketplace to a known-good version. Avoid rewriting published Git tags. Plugin uninstall and npm uninstall are separate operations.
-
-## What the maintainer needs to provide
-
-| Channel | Needed before release |
-| --- | --- |
-| npm library and CLI | npm account with 2FA, permission to publish the chosen name, and approval of the first version; configure a trusted publisher after bootstrap |
-| GitHub-based skills and plugins | Public repository and a reviewed version/tag; no separate server or registry account |
-| skills.sh discovery | Optional: the same public skill repository works with `npx skills add DimaMishchenko/widgetctl`; see the [skills CLI](https://skills.sh/docs/cli) |
-| OpenAI public plugin directory | Optional: verified publisher identity, submission access and review; follow the [submission guide](https://developers.openai.com/plugins/deploy/submission) |
-
-Use `widgetctl` if npm grants the publishing name; otherwise choose a scoped name such as `@YOUR_NPM_ACCOUNT/widgetctl` and update installation instructions. A registry 404 is not proof that a name can be registered. Do not share passwords, npm tokens or 2FA codes in a chat; complete account login using the client’s own authentication flow.
+For a bad release, stop rollout, document affected versions and publish a fixed patch. If needed, deprecate the affected npm version and move the registry tag to the last verified version. Update the plugin marketplace to a known-good version. Avoid rewriting published Git tags. Plugin uninstall and npm uninstall are separate operations.
 
 ## Demo maintenance
 

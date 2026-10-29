@@ -18,20 +18,20 @@ Pick an app, widget and size in your terminal. Edit its settings, reproduce a te
 
 Requires **macOS, Node 22.14+ and full Xcode**. Install your app on a simulator and open it once so its widgets can register.
 
-Until the first npm release, install from GitHub in your project:
+Install in your project:
 
 ```sh
-npm install --save-dev github:DimaMishchenko/widgetctl
+npm install --save-dev widgetctl
 ```
 
 Or install globally and run it anywhere:
 
 ```sh
-npm install --global github:DimaMishchenko/widgetctl
+npm install --global widgetctl
 widgetctl
 ```
 
-Pin `github:DimaMishchenko/widgetctl#COMMIT_SHA` in automated tests. [Release and distribution plan →](docs/distribution.md)
+For reproducible installs, use `widgetctl@0.1.0` and keep your lockfile. [Distribution and releases →](docs/distribution.md)
 
 ## Agent skill and plugins
 
@@ -92,7 +92,7 @@ try {
 Install both packages in your test project:
 
 ```sh
-npm install --save-dev github:DimaMishchenko/widgetctl @playwright/test
+npm install --save-dev widgetctl @playwright/test
 ```
 
 `widgetctl/playwright` is an import subpath exported by `widgetctl`, not a separate npm dependency. The fixture prepares and releases widgetctl for you.

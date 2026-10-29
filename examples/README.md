@@ -2,13 +2,13 @@
 
 Use these from your own Node project on macOS with Node 22.14+, Xcode, an installed widget app, and an already booted simulator that you exclusively own. These examples do not boot devices or install apps. Runtime support follows the repository's support matrix.
 
-Install from GitHub, then copy this directory to `examples/widgetctl` in that project:
+Install the package, then copy this directory to `examples/widgetctl` in that project:
 
 ```sh
-npm install --save-dev github:DimaMishchenko/widgetctl typescript@5.9.3 tsx @types/node@22.19.0
+npm install --save-dev widgetctl typescript@5.9.3 tsx @types/node@22.19.0
 ```
 
-This is the repository installation route; an npm registry release is not assumed. The examples use the tested TypeScript 5.9.3 and Node type definitions 22.19.0 toolchain. Pin a reviewed commit SHA and commit your lockfile for reproducibility. The installed package includes this directory. Copy it with `mkdir -p examples && cp -R node_modules/widgetctl/examples examples/widgetctl`. You can also copy it from the repository. For a project without a `package.json`, run `npm init -y` first, and use `npm pkg set type=module` for these ESM TypeScript examples.
+The examples use the tested TypeScript 5.9.3 and Node type definitions 22.19.0 toolchain. Use `widgetctl@0.1.0` and commit your lockfile for reproducibility. The installed package includes this directory. Copy it with `mkdir -p examples && cp -R node_modules/widgetctl/examples examples/widgetctl`. You can also copy it from the repository. For a project without a `package.json`, run `npm init -y` first, and use `npm pkg set type=module` for these ESM TypeScript examples.
 
 Set real inputs from your installed app and owned simulator:
 
@@ -55,7 +55,7 @@ The value must be valid JSON with your widget's actual schema. Copy and edit the
 `widgetctl/playwright` is included in `widgetctl`; it is not a separate npm package. Install the runner alongside widgetctl, then use the included configuration:
 
 ```sh
-npm install --save-dev github:DimaMishchenko/widgetctl @playwright/test
+npm install --save-dev widgetctl @playwright/test
 npx playwright test --config examples/widgetctl/playwright/playwright.config.ts
 ```
 
