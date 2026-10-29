@@ -8,7 +8,7 @@ Install the package, then copy this directory to `examples/widgetctl` in that pr
 npm install --save-dev widgetctl typescript@5.9.3 tsx @types/node@22.19.0
 ```
 
-The examples use the tested TypeScript 5.9.3 and Node type definitions 22.19.0 toolchain. Use `widgetctl@0.1.2` and commit your lockfile for reproducibility. The installed package includes this directory. Copy it with `mkdir -p examples && cp -R node_modules/widgetctl/examples examples/widgetctl`. You can also copy it from the repository. For a project without a `package.json`, run `npm init -y` first, and use `npm pkg set type=module` for these ESM TypeScript examples.
+The examples use the tested TypeScript 5.9.3 and Node type definitions 22.19.0 toolchain. Use `widgetctl@0.2.1` and commit your lockfile for reproducibility. The installed package includes this directory. Copy it with `mkdir -p examples && cp -R node_modules/widgetctl/examples examples/widgetctl`. You can also copy it from the repository. For a project without a `package.json`, run `npm init -y` first, and use `npm pkg set type=module` for these ESM TypeScript examples.
 
 Set real inputs from your installed app and owned simulator:
 

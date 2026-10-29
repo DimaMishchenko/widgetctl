@@ -41,7 +41,6 @@ test("packed package ships linked docs and supports core and optional Playwright
       "dist/playwright.js",
       "CONTRIBUTING.md",
       "docs/usage.md",
-      "docs/release-checklist.md",
       "examples/README.md",
       "examples/basic.ts",
       "examples/discover.ts",

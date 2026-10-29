@@ -468,8 +468,13 @@ export async function editConfiguration(
   }
 }
 export async function createPrompts(signal: AbortSignal): Promise<Prompts> {
-  const { search, select, input, confirm, editor } =
-    await import("@inquirer/prompts");
+  const [search, select, input, confirm, editor] = await Promise.all([
+    import("@inquirer/search").then((module) => module.default),
+    import("@inquirer/select").then((module) => module.default),
+    import("@inquirer/input").then((module) => module.default),
+    import("@inquirer/confirm").then((module) => module.default),
+    import("@inquirer/editor").then((module) => module.default),
+  ]);
   const plain = (value: string) => value;
   const theme = {
     ...(process.env.WIDGETCTL_NO_EMOJI === "1" || process.env.TERM === "dumb"
