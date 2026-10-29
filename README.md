@@ -1,4 +1,4 @@
-![Add and edit a widget with widgetctl](docs/assets/usage.gif)
+![Add, edit and remove a widget with widgetctl](docs/assets/usage.gif)
 
 # widgetctl
 

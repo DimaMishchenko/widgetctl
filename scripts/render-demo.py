@@ -22,10 +22,12 @@ def replay(recording):
                 column = amount - 1
             elif command == 'K':
                 rows[row] = [] if argument == '2' else rows[row][:column]
-            elif token == '\x1b[?25l':
-                snapshots.append('\n'.join(''.join(line).rstrip() for line in rows).rstrip())
             while len(rows) <= row:
                 rows.append([])
+            if token in ('\x1b[?25l', '\x1b[?25h') or command == 'G':
+                screen = '\n'.join(''.join(line).rstrip() for line in rows).rstrip()
+                if not snapshots or snapshots[-1] != screen:
+                    snapshots.append(screen)
         else:
             for character in token:
                 if character == '\n':
@@ -46,30 +48,50 @@ def replay(recording):
                     column += 1
                 while len(rows) <= row:
                     rows.append([])
+    final = '\n'.join(''.join(line).rstrip() for line in rows).rstrip()
+    if final and (not snapshots or snapshots[-1] != final):
+        snapshots.append(final)
     return snapshots
 
 
 def choose_frames(snapshots):
     markers = [
-        ('❯ ➕ Add widget', 1500),
-        ('❯ ✏ Edit widget', 900),
-        ('❯ Pocket Garden · Pocket Garden Controls · Medium', 1500),
-        ('❯ Watering reminder: On', 1800),
-        ('❯ Garden caption: Morning garden', 1400),
-        ('Garden caption: Morning garden → Human-friendly garden', 2700),
-        ('❯ Save changes · 1', 2100),
-        ('✓ Changes saved', 2800),
+        ('❯ ➕ Add widget', 'empty', 'Add', 1000, True),
+        ('❯ Pocket Garden', 'empty', 'Add', 1100, False),
+        ('❯ Pocket Garden Controls', 'empty', 'Add', 1000, False),
+        ('❯ Medium', 'empty', 'Add', 1200, True),
+        ('✓ Pocket Garden Controls · Medium ready', 'added', 'Add', 1800, True),
+        ('❯ ✏ Edit widget', 'added', 'Edit', 1000, True),
+        ('❯ Pocket Garden · Pocket Garden Controls · Medium', 'added', 'Edit', 1200, True),
+        ('❯ Watering reminder: On', 'added', 'Edit', 1200, True),
+        ('❯ Garden caption: Morning garden', 'added', 'Edit', 1300, True),
+        ('Garden caption: Morning garden → Human-friendly garden', 'added', 'Edit', 1700, True),
+        ('❯ Save changes · 1', 'added', 'Edit', 1300, True),
+        ('✓ Changes saved', 'edited', 'Edit', 1900, True),
+        ('❯ 🗑 Remove widget', 'edited', 'Remove', 1000, True),
+        ('❯ Pocket Garden · Pocket Garden Controls · Medium', 'edited', 'Remove', 1200, True),
+        ('? Remove Pocket Garden · Pocket Garden Controls · Medium?', 'edited', 'Remove', 1400, True),
+        ('✓ Pocket Garden · Pocket Garden Controls · Medium removed', 'removed', 'Remove', 2000, True),
     ]
+    current_screens = ['\n'.join(visible_lines(screen)) for screen in snapshots]
     chosen = []
     start = 0
-    for marker, duration in markers:
-        for index in range(start, len(snapshots)):
-            if marker in snapshots[index]:
-                chosen.append((snapshots[index], duration))
+    for marker_index, (marker, state, stage, duration, required) in enumerate(markers):
+        end = len(snapshots)
+        if not required:
+            next_required = next(item[0] for item in markers[marker_index + 1:] if item[4])
+            end = next((index for index in range(start, end) if next_required in current_screens[index]), end)
+        for index in range(start, end):
+            current = current_screens[index]
+            if marker.startswith('✓') and '? What would you like to do?' not in current:
+                continue
+            if marker in current:
+                chosen.append((snapshots[index], duration, state, stage))
                 start = index + 1
                 break
         else:
-            raise ValueError(f'Recording is missing the next required frame: {marker}')
+            if required:
+                raise ValueError(f'Recording is missing the next required frame: {marker}')
     return chosen
 
 
@@ -95,7 +117,7 @@ def draw_line(draw, position, text, font, emoji, color):
             x += draw.textlength(character, font=font)
 
 
-def render(screen, font, emoji, simulator, saved):
+def render(screen, font, emoji, simulator, stage, state):
     width, height = 1280, 760
     terminal_right = 804
     frame = Image.new('RGB', (width, height), '#101319')
@@ -108,51 +130,52 @@ def render(screen, font, emoji, simulator, saved):
         draw.ellipse((x, 28, x + 9, 37), fill=color)
     small = ImageFont.truetype('/System/Library/Fonts/Menlo.ttc', 13)
     label = ImageFont.truetype('/System/Library/Fonts/SFNS.ttf', 17)
-    draw.text((107, 24), 'widgetctl  ·  recorded terminal', font=small, fill='#a5afbd')
+    draw.text((107, 24), f'widgetctl  ·  {stage} widget', font=small, fill='#a5afbd')
     for index, line in enumerate(visible_lines(screen)):
         color = '#a9dbb9' if line.startswith('✓') else '#8cc8ff' if line.startswith('❯') else '#cbd3df'
         draw_line(draw, (32, 75 + index * 29), line, font, emoji, color)
-    simulator_label = 'Simulator · saved result capture' if saved else 'Simulator · before capture'
+    simulator_label = f'Simulator · {state} capture'
     draw.text((832, 24), simulator_label, font=label, fill='#cbd3df')
     phone = simulator.copy()
     phone.thumbnail((420, 638), Image.Resampling.LANCZOS)
     px, py = 1048 - phone.width // 2, 59
     draw.rounded_rectangle((px - 4, py - 4, px + phone.width + 4, py + phone.height + 4), radius=18, fill='#303743')
     frame.paste(phone, (px, py))
-    caption = 'Recorded CLI replay + separate simulator captures · trimmed + sped up · not time-synced'
+    caption = 'Recorded CLI + simulator captures · pauses trimmed + playback sped up'
     draw.text((25, height - 34), caption, font=small, fill='#8c97a7')
     return frame
 
 
 def main():
     parser = argparse.ArgumentParser(description='Render an authentic trimmed PTY recording as docs/assets/usage.gif. Requires Pillow and macOS system fonts.')
-    parser.add_argument('recording', type=Path, help='Raw script/PTY log from the recorded Pocket Garden edit session')
+    parser.add_argument('recording', type=Path, help='Raw script/PTY log from the recorded Pocket Garden add, edit, remove session')
     parser.add_argument('--output', type=Path, default=Path('docs/assets/usage.gif'))
     parser.add_argument('--proof-dir', type=Path, default=Path('.local/distribution/demo'))
-    parser.add_argument('--before-simulator', type=Path, required=True, help='Real Home Screen capture before the edit')
-    parser.add_argument('--after-simulator', type=Path, required=True, help='Real Home Screen capture after saving')
+    for state in ('empty', 'added', 'edited', 'removed'):
+        parser.add_argument(f'--{state}-simulator', type=Path, required=True, help=f'Real full Home Screen capture in the {state} state')
     args = parser.parse_args()
     snapshots = replay(args.recording.read_text())
     selected = choose_frames(snapshots)
+    if sum(duration for _, duration, _, _ in selected) > 30000:
+        parser.error('Demo playback must be no longer than 30 seconds')
     args.proof_dir.mkdir(parents=True, exist_ok=True)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     font = ImageFont.truetype('/System/Library/Fonts/Menlo.ttc', 20)
     emoji = ImageFont.truetype('/System/Library/Fonts/Apple Color Emoji.ttc', 20)
-    before = Image.open(args.before_simulator).convert('RGB')
-    after = Image.open(args.after_simulator).convert('RGB')
-    if before.size != after.size:
+    captures = {state: Image.open(getattr(args, f'{state}_simulator')).convert('RGB')
+                for state in ('empty', 'added', 'edited', 'removed')}
+    if len({capture.size for capture in captures.values()}) != 1:
         parser.error('Simulator captures must have matching dimensions')
-    frames = []
-    for screen, _ in selected:
-        saved = '✓ Changes saved' in screen
-        simulator = after if saved else before
-        frames.append(render(screen, font, emoji, simulator, saved))
-    for index, (frame, (screen, _)) in enumerate(zip(frames, selected)):
+    frames = [render(screen, font, emoji, captures[state], stage, state)
+              for screen, _, state, stage in selected]
+    for index, (frame, (screen, _, state, stage)) in enumerate(zip(frames, selected)):
         frame.save(args.proof_dir / f'frame-{index:02}.png')
         (args.proof_dir / f'frame-{index:02}.txt').write_text(screen)
-    frames[0].save(args.output, save_all=True, append_images=frames[1:], duration=[duration for _, duration in selected], loop=0, optimize=True, disposal=2)
+    (args.proof_dir / 'stages.txt').write_text('\n'.join(
+        f'{index:02} {stage} {state} {duration}ms' for index, (_, duration, state, stage) in enumerate(selected)))
+    frames[0].save(args.output, save_all=True, append_images=frames[1:], duration=[duration for _, duration, _, _ in selected], loop=0, optimize=True, disposal=1)
     with Image.open(args.output) as result:
-        print(f'{args.output}: {result.width}×{result.height}, {result.n_frames} frames, {sum(duration for _, duration in selected) / 1000:.1f}s, {args.output.stat().st_size:,} bytes')
+        print(f'{args.output}: {result.width}×{result.height}, {result.n_frames} frames, {sum(duration for _, duration, _, _ in selected) / 1000:.1f}s, {args.output.stat().st_size:,} bytes')
 
 
 if __name__ == '__main__':
