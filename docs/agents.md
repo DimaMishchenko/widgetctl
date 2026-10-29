@@ -22,7 +22,7 @@ On Codex CLI versions exposing `codex plugin add`, you can instead install with:
 codex plugin add widgetctl@widgetctl
 ```
 
-Check `codex plugin --help` if your client differs. For the reproducible 0.1.1 plugin source, use `codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.1`. Register a local checkout with `codex plugin marketplace add /absolute/path/to/widgetctl` when testing unpublished changes.
+Check `codex plugin --help` if your client differs. For the reproducible 0.1.2 plugin source, use `codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.2`. Register a local checkout with `codex plugin marketplace add /absolute/path/to/widgetctl` when testing unpublished changes.
 
 ### Claude Code
 

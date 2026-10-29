@@ -31,7 +31,7 @@ npm install --global widgetctl
 widgetctl
 ```
 
-For reproducible installs, use `widgetctl@0.1.1` and keep your lockfile. [Distribution and releases →](docs/distribution.md)
+For reproducible installs, use `widgetctl@0.1.2` and keep your lockfile. [Distribution and releases →](docs/distribution.md)
 
 ## Agent skill and plugins
 

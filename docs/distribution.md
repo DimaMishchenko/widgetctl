@@ -15,13 +15,13 @@ Choose a project or global CLI install. TypeScript and Playwright imports requir
 
 Plugins and standalone skills include a ready-to-run CLI, native worker and bundled production dependencies. Choose one skill installation route; no extra npm CLI install is required. Node 22.14+ and Xcode must be present on the Mac. The bundle does not change global PATH or install a project dependency. TypeScript and Playwright imports still need a project dependency.
 
-For reproducible 0.1.1 setup, install `widgetctl@0.1.1`, preserve the lockfile, and pin the Codex marketplace source:
+For reproducible 0.1.2 setup, install `widgetctl@0.1.2`, preserve the lockfile, and pin the Codex marketplace source:
 
 ```sh
-codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.1
+codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.2
 ```
 
-The public OpenAI plugin directory is **not yet published**. A draft was uploaded on 2026-10-29, but the portal reports that it is not accepting more skills-only submissions. The 0.1.1 manifest supplies the requested support, privacy and license URLs; provider acceptance is still required. Repository marketplace installation is a separate channel. A public listing requires a verified publisher identity, package validation, submission and approval; follow the [submission guide](https://developers.openai.com/plugins/deploy/submission) and [desktop-only requirements](https://developers.openai.com/plugins/deploy/desktop-only). Do not claim cloud execution without a local Mac executor.
+The public OpenAI plugin directory is **not yet published**. A draft was uploaded on 2026-10-29, but the portal reports that it is not accepting more skills-only submissions. The 0.1.2 manifest supplies the requested support, privacy and license URLs; provider acceptance is still required. Repository marketplace installation is a separate channel. A public listing requires a verified publisher identity, package validation, submission and approval; follow the [submission guide](https://developers.openai.com/plugins/deploy/submission) and [desktop-only requirements](https://developers.openai.com/plugins/deploy/desktop-only). Do not claim cloud execution without a local Mac executor.
 
 ## Publish a new version
 

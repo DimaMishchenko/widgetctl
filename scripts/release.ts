@@ -14,6 +14,17 @@ export function validateVersion(
   for (const manifest of manifests) assert.equal(manifest.version, version);
 }
 
+export function publishArgs(version: string, directory = process.cwd()) {
+  validateVersion(version, []);
+  return [
+    "publish",
+    resolve(directory, "release", `widgetctl-${version}.tgz`),
+    "--access",
+    "public",
+    "--provenance",
+  ];
+}
+
 export function evidenceTag(url: string, repository: string, version: string) {
   const expected = `https://github.com/${repository}/releases/download/v${version}/acceptance.json`;
   assert.equal(url, expected, `Evidence URL must be ${expected}`);
@@ -79,6 +90,16 @@ async function main() {
   validateVersion(version, [
     JSON.parse(readFileSync("package-lock.json", "utf8")).packages[""],
   ]);
+  if (command === "preview" || command === "publish") {
+    const args = publishArgs(version);
+    if (command === "preview") args.push("--dry-run");
+    execFileSync("npm", args, {
+      stdio: "inherit",
+      timeout: 180_000,
+      killSignal: "SIGKILL",
+    });
+    return;
+  }
   if (command === "source") {
     const repo = ghJson(`repos/${repository}`);
     const head = ghJson(

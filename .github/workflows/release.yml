@@ -70,6 +70,8 @@ jobs:
           mkdir release
           npm pack --pack-destination release
           npm run pack:plugin -- --output release
+      - name: Preview exact npm publication command
+        run: node --import tsx scripts/release.ts preview "$RELEASE_VERSION" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
       - name: Record artifact checksums
         run: |
           cd release
@@ -138,7 +140,7 @@ jobs:
           gh release upload "$tag" "release/widgetctl-$RELEASE_VERSION.tgz" \
             "release/widgetctl-plugin-$RELEASE_VERSION.zip" release/SHA256SUMS release/notes.md release/acceptance.json --clobber
       - name: Publish verified tarball to npm using trusted publishing
-        run: npm publish "release/widgetctl-$RELEASE_VERSION.tgz" --access public --provenance
+        run: node --import tsx scripts/release.ts publish "$RELEASE_VERSION" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
       - name: Verify public npm version and exact published bytes
         run: node --import tsx scripts/release.ts registry "$RELEASE_VERSION" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
       - name: Publish GitHub release
