@@ -43,8 +43,9 @@ test("command timeout kills an owned child that ignores SIGTERM", async () => {
     }, 3000);
     try {
       await assert.rejects(result, (error: any) => {
-        assert.equal(error.killed, true);
-        assert.equal(error.signal, "SIGKILL");
+        assert.equal(error.code, "COMMAND_TIMEOUT");
+        assert.equal(error.cause.killed, true);
+        assert.equal(error.cause.signal, "SIGKILL");
         return true;
       });
       assert.equal(

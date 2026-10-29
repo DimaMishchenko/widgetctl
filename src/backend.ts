@@ -1,3 +1,4 @@
+import { WidgetctlError, classifyError, backendErrorCode } from "./errors.js";
 import path from "node:path";
 import { createDiscovery } from "./discovery.js";
 import os from "node:os";
@@ -66,7 +67,7 @@ export interface BackendResult {
   timings: Record<string, number>;
   [key: string]: any;
 }
-export function validateOptions(o: BackendOptions): string {
+function validateInput(o: BackendOptions): string {
   if (!uuid(o.udid)) throw Error("UDID must be an explicit UUID");
   if (
     ![
@@ -151,6 +152,16 @@ export function validateOptions(o: BackendOptions): string {
     throw Error("Entity query options apply only to configurationChoices");
   return o.udid.toUpperCase();
 }
+export function validateOptions(o: BackendOptions): string {
+  try {
+    return validateInput(o);
+  } catch (cause) {
+    throw new WidgetctlError(
+      cause instanceof Error ? cause.message : String(cause),
+      { code: "INVALID_INPUT", cause },
+    );
+  }
+}
 export function createBackend(
   r: Runtime = runtime,
   globalRoot = path.join(os.homedir(), "Library/Caches/widgetctl"),
@@ -186,8 +197,9 @@ export function createBackend(
           runtimeIds.length !== 1 ||
           !runtimeIds[0]!.startsWith("com.apple.CoreSimulator.SimRuntime.iOS-")
         )
-          throw Error(
+          throw new WidgetctlError(
             "Only one explicitly booted iOS simulator runtime is supported",
+            { code: "UNSUPPORTED_RUNTIME" },
           );
         const sim = (...args: string[]) => {
           assertLockOwnership();
@@ -232,7 +244,14 @@ export function createBackend(
         ];
         const finish = (status: string, extra: Dict = {}) => {
           assertLockOwnership();
-          return Object.assign(out, { status }, extra);
+          Object.assign(out, { status }, extra);
+          if (
+            status.endsWith("_rejected") ||
+            status.endsWith("unverified") ||
+            ["worker_still_live", "duplicate_existing_widgets"].includes(status)
+          )
+            out.errorCode = backendErrorCode(out);
+          return out;
         };
         const removeSessionFile = async (name: string) => {
           assertLockOwnership();
@@ -489,8 +508,9 @@ export function createBackend(
           }
           out.timings.injection_restart_seconds = (r.now() - started) / 1000;
           if (!live)
-            throw Error(
+            throw new WidgetctlError(
               "Injected worker did not publish a live heartbeat within 45 seconds",
+              { code: "HELPER_UNAVAILABLE" },
             );
         } else out.timings.injection_restart_seconds = 0;
         await atomicJson(injectionPath, {
@@ -526,6 +546,7 @@ export function createBackend(
           if (validation.status === "error")
             return finish(`${prefix}_preflight_rejected`, {
               error: validation.error,
+              errorName: validation.errorName,
             });
           validateTargetBatch(validation, validationTargets, desired);
           out[`${prefix}_removals`] = [];
@@ -546,6 +567,7 @@ export function createBackend(
             if (response.status === "error")
               return finish(`${prefix}_removal_rejected`, {
                 error: response.error,
+                errorName: response.errorName,
               });
             if (response.status !== "removal_submitted")
               throw Error(
@@ -599,7 +621,10 @@ export function createBackend(
         out.response = response;
         out.timings.command_seconds = elapsed;
         if (response.status === "error")
-          return finish("worker_rejected", { error: response.error });
+          return finish("worker_rejected", {
+            error: response.error,
+            errorName: response.errorName,
+          });
         if (o.mode === "catalog") {
           const apps = await createDiscovery(r.command).listApplications(udid);
           return finish("catalogued", {
@@ -607,73 +632,96 @@ export function createBackend(
           });
         }
         if (o.mode === "applyConfiguration") {
-          if (
-            response.status !== "configuration_applied" ||
-            response.roundtripVerified !== true ||
-            response.widgetIdentityVerified !== true ||
-            response.archiving !== true
-          )
-            throw Error(
-              "Worker did not prove archived configuration apply and exact live readback",
-            );
-          const updated = persistedTarget({
-            displayIdentifier: ids!.iconIdentifier,
-            uniqueIdentifier: response.appliedWidgetIdentifier,
-          });
-          const configuration = validateConfiguration(response.configuration, {
-            ...configBindings,
-            ...updated,
-          });
-          if (
-            !equal(configuration.intent, o.configuration!.intent) ||
-            !equal(response.roundtrip, configuration.intent)
-          )
-            throw Error(
-              "Configuration readback differs from the full requested intent",
-            );
-          const [verified, error, current, , seconds] = await wait((after) => {
-            const matches = verifyIconstate(
-              after,
-              o.extension!,
-              o.kind!,
-              o.size!,
-            );
-            const selected = matches.filter(
-              (v) => v.displayIdentifier === updated.iconIdentifier,
+          try {
+            if (
+              response.status !== "configuration_applied" ||
+              response.roundtripVerified !== true ||
+              response.widgetIdentityVerified !== true ||
+              response.archiving !== true
+            )
+              throw Error(
+                "Worker did not prove archived configuration apply and exact live readback",
+              );
+            const updated = persistedTarget({
+              displayIdentifier: ids!.iconIdentifier,
+              uniqueIdentifier: response.appliedWidgetIdentifier,
+            });
+            const configuration = validateConfiguration(
+              response.configuration,
+              {
+                ...configBindings,
+                ...updated,
+              },
             );
             if (
-              selected.length !== 1 ||
-              !equal(persistedTarget(selected[0]!), updated)
+              !equal(configuration.intent, o.configuration!.intent) ||
+              !equal(response.roundtrip, configuration.intent)
             )
-              return "Updated configuration widget identity did not persist";
-            const expected = homeIdentities(existing);
-            const oldKey = JSON.stringify([
-                "uniqueIdentifier",
-                ids!.widgetIdentifier,
-              ]),
-              newKey = JSON.stringify([
-                "uniqueIdentifier",
-                updated.widgetIdentifier,
-              ]);
-            expected.set(oldKey, (expected.get(oldKey) ?? 0) - 1);
-            expected.set(newKey, (expected.get(newKey) ?? 0) + 1);
-            for (const [k, n] of expected) if (n <= 0) expected.delete(k);
-            if (!equal(expected, homeIdentities(after)))
-              throw Error("Configuration apply changed other Home identities");
-            return null;
-          });
-          out.timings.configuration_persistence_seconds = seconds;
-          if (!verified)
-            throw Error(error ?? "Configuration persistence unverified");
-          return finish("configuration_applied", {
-            configuration,
-            iconstate_matches: verifyIconstate(
-              current!,
-              o.extension!,
-              o.kind!,
-              o.size!,
-            ),
-          });
+              throw Error(
+                "Configuration readback differs from the full requested intent",
+              );
+            const [verified, error, current, , seconds] = await wait(
+              (after) => {
+                const matches = verifyIconstate(
+                  after,
+                  o.extension!,
+                  o.kind!,
+                  o.size!,
+                );
+                const selected = matches.filter(
+                  (v) => v.displayIdentifier === updated.iconIdentifier,
+                );
+                if (
+                  selected.length !== 1 ||
+                  !equal(persistedTarget(selected[0]!), updated)
+                )
+                  return "Updated configuration widget identity did not persist";
+                const expected = homeIdentities(existing);
+                const oldKey = JSON.stringify([
+                    "uniqueIdentifier",
+                    ids!.widgetIdentifier,
+                  ]),
+                  newKey = JSON.stringify([
+                    "uniqueIdentifier",
+                    updated.widgetIdentifier,
+                  ]);
+                expected.set(oldKey, (expected.get(oldKey) ?? 0) - 1);
+                expected.set(newKey, (expected.get(newKey) ?? 0) + 1);
+                for (const [k, n] of expected) if (n <= 0) expected.delete(k);
+                if (!equal(expected, homeIdentities(after)))
+                  throw Error(
+                    "Configuration apply changed other Home identities",
+                  );
+                return null;
+              },
+            );
+            out.timings.configuration_persistence_seconds = seconds;
+            if (!verified)
+              throw Error(error ?? "Configuration persistence unverified");
+            return finish("configuration_applied", {
+              configuration,
+              iconstate_matches: verifyIconstate(
+                current!,
+                o.extension!,
+                o.kind!,
+                o.size!,
+              ),
+            });
+          } catch (cause) {
+            if (
+              [
+                "OWNERSHIP_LOST",
+                "COMMAND_TIMEOUT",
+                "HELPER_UNAVAILABLE",
+                "UNSAFE_STATE",
+              ].includes(classifyError(cause).code)
+            )
+              throw cause;
+            throw new WidgetctlError(
+              cause instanceof Error ? cause.message : String(cause),
+              { code: "VERIFICATION_FAILED", cause },
+            );
+          }
         }
         if (o.mode === "configurationChoices") {
           if (
@@ -826,7 +874,10 @@ export function createBackend(
           out.reveal_response = reveal;
           out.timings.reveal_seconds = revealSeconds;
           if (reveal.status === "error")
-            return finish("reveal_rejected", { error: reveal.error });
+            return finish("reveal_rejected", {
+              error: reveal.error,
+              errorName: reveal.errorName,
+            });
           if (reveal.status !== "submitted" || reveal.action !== "reveal")
             throw Error(
               "Reveal command received an unexpected worker response",
@@ -913,6 +964,7 @@ export function createBackend(
     } catch (e) {
       out.status = "failed";
       out.error = e instanceof Error ? e.message : String(e);
+      out.errorCode = classifyError(e).code;
       return out;
     } finally {
       out.timings.total_seconds = (r.now() - started) / 1000;

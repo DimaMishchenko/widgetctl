@@ -419,7 +419,12 @@ static id installedActionMetadata(NSDictionary *canonical, NSString *__autorelea
     requireMethod(metadata, "identifier", "@16@0:8");
     if (![objectMessage(metadata, "identifier") isEqual:canonical[@"appIntentIdentifier"]])
         [NSException raise:@"InvalidConfigurationMetadata" format:@"Native action metadata does not match the exact intent identifier"];
-    if (queryBundle) *queryBundle = bundle;
+    requireMethod(metadata, "effectiveBundleIdentifier", "@16@0:8");
+    id effectiveBundle = objectMessage(metadata, "effectiveBundleIdentifier");
+    if (![effectiveBundle isKindOfClass:NSString.class] ||
+        (![effectiveBundle isEqual:canonical[@"extensionBundleIdentifier"]] && ![effectiveBundle isEqual:canonical[@"appBundleIdentifier"]]))
+        [NSException raise:@"ChoiceConnectionMismatch" format:@"Native action metadata targets a different app or extension"];
+    if (queryBundle) *queryBundle = effectiveBundle;
     return metadata;
 }
 
@@ -460,12 +465,13 @@ static id choicesCanonicalValue(id action, id metadata, id value, NSString *key,
 static void startConfigurationChoices(NSDictionary *command, NSMutableDictionary *response, void (^completion)(void)) {
     __block BOOL finished = NO;
     __block id ownedConnection = nil;
-    void (^finish)(NSString *) = ^(NSString *error) {
+    void (^finish)(NSString *, NSString *) = ^(NSString *error, NSString *errorName) {
         if (finished) return;
         finished = YES;
         if (error) {
             response[@"status"] = @"error";
             response[@"error"] = error;
+            response[@"errorName"] = errorName;
         }
         if (ownedConnection && object_getClass(ownedConnection) != NSClassFromString(@"LNConnectionProxy")) {
             @try {
@@ -474,6 +480,7 @@ static void startConfigurationChoices(NSDictionary *command, NSMutableDictionary
             } @catch (NSException *exception) {
                 response[@"status"] = @"error";
                 response[@"error"] = exception.description;
+                response[@"errorName"] = exception.name;
             }
         }
         ownedConnection = nil;
@@ -557,7 +564,7 @@ static void startConfigurationChoices(NSDictionary *command, NSMutableDictionary
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (finished) return;
                 @try {
-                    if (error) { finish(error.description); return; }
+                    if (error) { finish(error.description, @"ChoiceQueryFailed"); return; }
                     if (![result isKindOfClass:NSClassFromString(@"LNDynamicOptionsResult")])
                         [NSException raise:@"InvalidChoices" format:@"Native query did not return a dynamic option result"];
                     requireMethod(result, "sections", "@16@0:8");
@@ -601,13 +608,13 @@ static void startConfigurationChoices(NSDictionary *command, NSMutableDictionary
                     response[@"key"] = key;
                     response[@"collection"] = @(collection);
                     response[@"status"] = @"configuration_choices";
-                    finish(nil);
-                } @catch (NSException *exception) { finish(exception.description); }
+                    finish(nil, nil);
+                } @catch (NSException *exception) { finish(exception.description, exception.name); }
             });
         };
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ finish(@"Native entity option query timed out after 10 seconds"); });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ finish(@"Native entity option query timed out after 10 seconds", @"ChoiceQueryTimeout"); });
         ((void (*)(id, SEL, id, id, id, id, id, id))objc_msgSend)(connection, fetch, action, metadata, parameterMetadata, search, NSLocale.currentLocale.localeIdentifier, callback);
-    } @catch (NSException *exception) { finish(exception.description); }
+    } @catch (NSException *exception) { finish(exception.description, exception.name); }
 }
 
 static NSArray *relevantMethods(Class inspectedClass, BOOL includeIcons) {
@@ -814,6 +821,7 @@ static void tick(NSString *directory, NSString *udid, NSString *identity) {
         } @catch (NSException *exception) {
             response[@"status"] = @"error";
             response[@"error"] = exception.description;
+            response[@"errorName"] = exception.name;
         }
         response[@"callMilliseconds"] = @((CFAbsoluteTimeGetCurrent() - started) * 1000);
         saveJSON(response, [directory stringByAppendingPathComponent:@"response.json"]);

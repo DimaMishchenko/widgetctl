@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { WidgetctlError } from "../src/errors.js";
 import {
   editConfiguration,
   type ConfigurationDescription,
@@ -214,7 +215,9 @@ test("unsupported runtime choice queries explain the limit before JSON fallback"
       output += text;
     },
     async () => {
-      throw new Error("Runtime does not support entity discovery");
+      throw new WidgetctlError("Runtime does not support entity discovery", {
+        code: "UNSUPPORTED_CHOICES",
+      });
     },
   );
   assert.equal(result, undefined);
@@ -291,7 +294,7 @@ for (const action of ["null", "remove"]) {
 }
 
 for (const type of ["entity", "entities"] as const) {
-  test(`${type} source failures resolve to Back and JSON choices rather than rejected sources`, async () => {
+  test(`${type} recoverable source failures resolve to Back and JSON choices rather than rejected sources`, async () => {
     const description = structuredClone(original);
     const field = description.fields[0]!;
     field.type = type;
@@ -310,7 +313,10 @@ for (const type of ["entity", "entities"] as const) {
       questions,
       () => {},
       async (_key, term) => {
-        if (term) throw new Error("query unavailable");
+        if (term)
+          throw new WidgetctlError("query unavailable", {
+            code: "UNSUPPORTED_CHOICES",
+          });
         return [];
       },
     );
@@ -374,7 +380,10 @@ test("failed initial suggestions can be refined using the staged dependent value
       assert.equal(draft!.intent.parameters.showCode, true);
       assert.equal(original.configuration.intent.parameters.showCode, false);
       terms.push(term ?? "");
-      if (!term) throw Error("Too many choices; refine the search");
+      if (!term)
+        throw new WidgetctlError("Too many choices; refine the search", {
+          code: "UNSUPPORTED_CHOICES",
+        });
       return [
         {
           label: "Euro",
@@ -456,3 +465,170 @@ test("decimal prompts use readable input while saving the simulator locale encod
   assert.equal(unchanged, undefined);
   assert.equal(description.configuration.intent.parameters.amount, "7,50");
 });
+
+for (const type of ["entity", "entities"] as const) {
+  for (const stage of ["initial", "search"] as const) {
+    test(`${type} ${stage} discovery propagates unsafe and unknown failures without an editable draft`, async () => {
+      const failures = [
+        ...(
+          [
+            "OWNERSHIP_LOST",
+            "UNSAFE_STATE",
+            "CLEANUP_FAILED",
+            "HELPER_UNAVAILABLE",
+            "COMMAND_TIMEOUT",
+            "STALE_CONFIGURATION",
+          ] as const
+        ).map((code) => new WidgetctlError(`fatal ${code}`, { code })),
+        new Error("Unknown query failure"),
+      ];
+      for (const failure of failures) {
+        const description = structuredClone(original);
+        description.fields[0]!.type = type;
+        delete description.fields[0]!.choices;
+        const questions = prompts(["currency"], []);
+        questions.confirm = async () => {
+          assert.fail("Fatal discovery must not offer JSON editing or saving");
+        };
+        questions.editor = async () => {
+          assert.fail("Fatal discovery must not create an editable draft");
+        };
+        let queries = 0;
+        let searches = 0;
+        questions.search = async (_message, source) => {
+          searches++;
+          assert.equal(stage, "search");
+          const options = await source("broken");
+          assert.equal(options.length, 1);
+          assert.match(options[0]!.name, /Return to session/);
+          assert.doesNotMatch(options[0]!.name, /JSON/);
+          assert.deepEqual(await source("later"), options);
+          assert.equal(
+            queries,
+            2,
+            "A fatal search must stay fenced without another query",
+          );
+          return options[0]!.value;
+        };
+        await assert.rejects(
+          editConfiguration(
+            description,
+            questions,
+            () => {},
+            async (_key, term) => {
+              queries++;
+              if (stage === "initial" || term) throw failure;
+              return [];
+            },
+          ),
+          (error) => error === failure,
+        );
+        assert.equal(searches, stage === "initial" ? 0 : 1);
+        assert.deepEqual(description.configuration, original.configuration);
+      }
+    });
+  }
+}
+
+test("only explicit recoverable query failures permit the JSON fallback", async () => {
+  for (const code of [
+    "UNSUPPORTED_CHOICES",
+    "QUERY_TIMEOUT",
+    "QUERY_FAILED",
+  ] as const) {
+    const description = structuredClone(original);
+    delete description.fields[0]!.choices;
+    let offeredFallback = false;
+    const questions = prompts(["currency", "$back"], []);
+    questions.confirm = async () => {
+      offeredFallback = true;
+      return false;
+    };
+    assert.equal(
+      await editConfiguration(
+        description,
+        questions,
+        () => {},
+        async () => {
+          throw new WidgetctlError("Recoverable query failure", { code });
+        },
+      ),
+      undefined,
+    );
+    assert.equal(offeredFallback, true, code);
+  }
+});
+
+for (const type of ["entity", "entities"] as const) {
+  test(`${type} superseded search aborts do not fence the next live query`, async () => {
+    const description = structuredClone(original);
+    description.fields[0]!.type = type;
+    delete description.fields[0]!.choices;
+    const questions = prompts(["currency", "$save"], [true]);
+    let searches = 0;
+    const terms: string[] = [];
+    questions.search = async (_message, source) => {
+      if (searches++ === 0) {
+        const oldQuery = new AbortController();
+        oldQuery.abort();
+        assert.deepEqual(await source("old", oldQuery.signal), []);
+        const choices = await source("live", new AbortController().signal);
+        return choices.find((choice) => choice.name.endsWith("Euro"))!.value;
+      }
+      return (await source("live"))[0]!.value;
+    };
+    let output = "";
+    const result = await editConfiguration(
+      description,
+      questions,
+      (text) => {
+        output += text;
+      },
+      async (_key, term, _draft, signal) => {
+        terms.push(term ?? "");
+        signal?.throwIfAborted();
+        return term ? [{ label: "Euro", value: { identifier: "EUR" } }] : [];
+      },
+    );
+    assert.deepEqual(
+      result!.intent.parameters.currency,
+      type === "entity" ? { identifier: "EUR" } : [{ identifier: "EUR" }],
+    );
+    assert.deepEqual(terms.slice(0, 3), ["", "old", "live"]);
+    assert.doesNotMatch(output, /lookup failed|lookup unavailable/);
+  });
+
+  test(`${type} an aborted search still propagates ownership failure and unrelated aborts`, async () => {
+    for (const failure of [
+      new WidgetctlError("Ownership lost during cancelled search", {
+        code: "OWNERSHIP_LOST",
+      }),
+      new DOMException("Unrelated abort", "AbortError"),
+    ]) {
+      const description = structuredClone(original);
+      description.fields[0]!.type = type;
+      delete description.fields[0]!.choices;
+      const questions = prompts(["currency"], []);
+      questions.search = async (_message, source) => {
+        const oldQuery = new AbortController();
+        oldQuery.abort();
+        const choices = await source("old", oldQuery.signal);
+        assert.equal(choices.length, 1);
+        assert.match(choices[0]!.name, /Return to session/);
+        return choices[0]!.value;
+      };
+      await assert.rejects(
+        editConfiguration(
+          description,
+          questions,
+          () => {},
+          async (_key, term) => {
+            if (term) throw failure;
+            return [];
+          },
+        ),
+        (error) => error === failure,
+      );
+    }
+  });
+}

@@ -39,10 +39,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "prepare": "npm run build",
     "test:live": "node --import tsx test/live.ts",
-    "format": "prettier --write src test examples",
-    "format:check": "prettier --check src test examples",
+    "format": "prettier --write src test examples scripts",
+    "format:check": "prettier --check src test examples scripts",
     "test:playwright": "npm run build && node --import tsx --test test/playwright.test.ts",
-    "test:examples": "npm run build && tsc -p examples/tsconfig.json && bash -n examples/cli.sh"
+    "test:examples": "npm run build && tsc -p examples/tsconfig.json && bash -n examples/cli.sh",
+    "benchmark": "node --import tsx scripts/benchmark.ts",
+    "test:performance": "tsc -p scripts/tsconfig.json && node --import tsx --test test/performance.test.ts"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.5",

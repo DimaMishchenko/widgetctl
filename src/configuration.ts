@@ -42,8 +42,18 @@ const record = (value: unknown): value is RecordValue =>
   [Object.prototype, null].includes(Object.getPrototypeOf(value));
 const nonempty = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
-const label = (value: unknown, fallback: string): string =>
-  record(value) && nonempty(value.key) ? value.key : fallback;
+const resolvedLabels = new WeakMap<object, string>();
+const label = (value: unknown, fallback: string): string => {
+  if (!record(value)) return fallback;
+  return (
+    resolvedLabels.get(value) ??
+    (nonempty(value.defaultValue)
+      ? value.defaultValue
+      : nonempty(value.key)
+        ? value.key
+        : fallback)
+  );
+};
 
 function validateJSON(
   value: unknown,
@@ -314,6 +324,101 @@ async function readBounded(file: string, maximum: number): Promise<Buffer> {
     await handle.close();
   }
 }
+export async function resolveMetadataLabels(
+  metadata: unknown,
+  extension: string,
+  locale?: string,
+): Promise<unknown> {
+  if (!record(metadata)) return metadata;
+  const resources: RecordValue[] = [];
+  if (record(metadata.actions))
+    for (const action of Object.values(metadata.actions))
+      if (record(action) && Array.isArray(action.parameters))
+        for (const parameter of action.parameters)
+          if (record(parameter) && record(parameter.title))
+            resources.push(parameter.title);
+  if (Array.isArray(metadata.enums))
+    for (const enumeration of metadata.enums)
+      if (record(enumeration) && Array.isArray(enumeration.cases))
+        for (const item of enumeration.cases)
+          if (
+            record(item) &&
+            record(item.displayRepresentation) &&
+            record(item.displayRepresentation.title)
+          )
+            resources.push(item.displayRepresentation.title);
+  for (const resource of resources) resolvedLabels.delete(resource);
+  if (!locale || !/^[a-z]{2,8}(?:[-_][a-z0-9]{2,8})*$/i.test(locale))
+    return metadata;
+  const bundle = await fs.realpath(extension);
+  const components = locale.replaceAll("_", "-").split("-");
+  const languages = [
+    ...new Set([
+      locale,
+      components.join("-"),
+      components.join("_"),
+      components[0]!,
+    ]),
+  ];
+  const tables = new Map<string, RecordValue | undefined>();
+  let remainingBytes = 8 * 1024 * 1024;
+  for (const resource of resources) {
+    if (
+      !nonempty(resource.key) ||
+      !nonempty(resource.table) ||
+      !/^[a-z0-9_ -][a-z0-9_. -]{0,127}$/i.test(resource.table)
+    )
+      continue;
+    for (const language of languages) {
+      const relative = path.join(
+        `${language}.lproj`,
+        `${resource.table}.strings`,
+      );
+      if (!tables.has(relative)) {
+        if (tables.size >= 64 || remainingBytes <= 0) continue;
+        let table: RecordValue | undefined;
+        try {
+          const directoryPath = path.join(bundle, `${language}.lproj`);
+          const filePath = path.join(bundle, relative);
+          if (
+            (await fs.lstat(directoryPath)).isSymbolicLink() ||
+            (await fs.lstat(filePath)).isSymbolicLink()
+          )
+            throw Error("Localized resources must not be symlinks");
+          const directory = await fs.realpath(directoryPath);
+          const file = await fs.realpath(filePath);
+          if (
+            directory.startsWith(bundle + path.sep) &&
+            file.startsWith(directory + path.sep)
+          ) {
+            const bytes = await readBounded(
+              file,
+              Math.min(1024 * 1024, remainingBytes),
+            );
+            remainingBytes -= bytes.length;
+            const parsed: unknown =
+              bytes.subarray(0, 8).toString() === "bplist00"
+                ? bplist.parseBuffer(bytes)[0]
+                : plist.parse(bytes.toString("utf8"));
+            if (record(parsed)) table = parsed;
+          }
+        } catch {}
+        tables.set(relative, table);
+      }
+      const table = tables.get(relative);
+      if (
+        table &&
+        Object.hasOwn(table, resource.key) &&
+        nonempty(table[resource.key])
+      ) {
+        resolvedLabels.set(resource, table[resource.key] as string);
+        break;
+      }
+    }
+  }
+  return metadata;
+}
+
 async function bundleIdentifier(bundle: string): Promise<unknown> {
   const bytes = await readBounded(path.join(bundle, "Info.plist"), 1024 * 1024);
   const info: unknown =
@@ -326,6 +431,7 @@ async function bundleIdentifier(bundle: string): Promise<unknown> {
 export async function readConfigurationMetadata(
   udid: string,
   configuration: WidgetConfiguration,
+  locale?: string,
 ): Promise<unknown | undefined> {
   const applications = await listApplications(udid);
   const matches = applications.filter(
@@ -360,8 +466,12 @@ export async function readConfigurationMetadata(
       path.join(candidates[0]!, "Metadata.appintents", "extract.actionsdata"),
     );
     if (!metadata.startsWith(candidates[0]! + path.sep)) return undefined;
-    return JSON.parse(
-      (await readBounded(metadata, 8 * 1024 * 1024)).toString("utf8"),
+    return await resolveMetadataLabels(
+      JSON.parse(
+        (await readBounded(metadata, 8 * 1024 * 1024)).toString("utf8"),
+      ),
+      candidates[0]!,
+      locale,
     );
   } catch {
     return undefined;

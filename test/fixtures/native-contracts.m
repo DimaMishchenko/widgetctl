@@ -94,6 +94,26 @@ static id currentDescriptor;
 - (void)removeIcon:(id)icon options:(int)options undoActionName:(id)name completion:(void (^)(void))completion { (void)icon; (void)options; (void)name; (void)completion; }
 @end
 
+@interface FixtureActionMetadata : NSObject
+@property(nonatomic, copy) NSString *effectiveBundleIdentifier;
+- (id)identifier;
+@end
+@implementation FixtureActionMetadata
+- (id)identifier { return @"Settings"; }
+@end
+
+static FixtureActionMetadata *currentActionMetadata;
+
+@interface LNMetadataProvider : NSObject
+- (id)actionForBundleIdentifier:(id)bundle andActionIdentifier:(id)identifier error:(NSError *__autoreleasing *)error;
+@end
+@implementation LNMetadataProvider
+- (id)actionForBundleIdentifier:(id)bundle andActionIdentifier:(id)identifier error:(NSError *__autoreleasing *)error {
+    (void)identifier; (void)error;
+    return [bundle isEqual:@"org.app"] ? currentActionMetadata : nil;
+}
+@end
+
 static void expectException(NSString *name, NSString *reason, void (^action)(void)) {
     BOOL rejected = NO;
     @try { action(); }
@@ -163,7 +183,24 @@ int main(void) {
             } @finally {
                 [NSFileManager.defaultManager removeItemAtPath:responsePath error:nil];
             }
-            puts("native contracts: 16 checks passed");
+            NSMutableDictionary *choiceResponse = NSMutableDictionary.dictionary;
+            __block NSUInteger completions = 0;
+            startConfigurationChoices(@{@"key": @1}, choiceResponse, ^{ completions++; });
+            if (completions != 1 || ![choiceResponse[@"errorName"] isEqual:@"InvalidCommand"] || ![choiceResponse[@"error"] containsString:@"key must be a nonempty string"])
+                [NSException raise:@"HarnessFailure" format:@"Choice exception did not retain a stable name and diagnostic"];
+            currentActionMetadata = [FixtureActionMetadata new];
+            currentActionMetadata.effectiveBundleIdentifier = @"org.widgets";
+            NSDictionary *queryIntent = @{@"extensionBundleIdentifier": @"org.widgets", @"appBundleIdentifier": @"org.app", @"appIntentIdentifier": @"Settings"};
+            NSString *queryBundle = nil;
+            if (installedActionMetadata(queryIntent, &queryBundle) != currentActionMetadata || ![queryBundle isEqual:@"org.widgets"])
+                [NSException raise:@"HarnessFailure" format:@"Aggregated container metadata did not route to its extension"];
+            currentActionMetadata.effectiveBundleIdentifier = @"org.app";
+            installedActionMetadata(queryIntent, &queryBundle);
+            if (![queryBundle isEqual:@"org.app"])
+                [NSException raise:@"HarnessFailure" format:@"Application metadata did not retain its application route"];
+            currentActionMetadata.effectiveBundleIdentifier = @"other.widgets";
+            expectException(@"ChoiceConnectionMismatch", @"different app or extension", ^{ installedActionMetadata(queryIntent, nil); });
+            puts("native contracts: 20 checks passed");
             return 0;
         } @catch (NSException *exception) {
             fprintf(stderr, "%s: %s\n", exception.name.UTF8String, exception.reason.UTF8String);

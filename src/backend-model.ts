@@ -1,3 +1,4 @@
+import { WidgetctlError } from "./errors.js";
 import { isDeepStrictEqual } from "node:util";
 export type Dict = Record<string, any>;
 export type Target = { iconIdentifier: string; widgetIdentifier: string };
@@ -242,10 +243,15 @@ export function validateTargetBatch(
 }
 export function validateConfiguration(v: unknown, expected: Dict): Dict {
   if (!object(v) || v.schemaVersion !== 1)
-    throw Error("Configuration requires schemaVersion 1");
+    throw new WidgetctlError("Configuration requires schemaVersion 1", {
+      code: "INVALID_INPUT",
+    });
   for (const [k, value] of Object.entries(expected))
     if (v[k] !== value)
-      throw Error(`Configuration ${k} does not match the current widget`);
+      throw new WidgetctlError(
+        `Configuration ${k} does not match the current widget`,
+        { code: "IDENTITY_MISMATCH" },
+      );
   const i = v.intent;
   if (
     !object(i) ||
@@ -268,8 +274,9 @@ export function validateConfiguration(v: unknown, expected: Dict): Dict {
     i.appBundleIdentifier !== expected.container ||
     i.extensionBundleIdentifier !== expected.extension
   )
-    throw Error(
+    throw new WidgetctlError(
       "Configuration intent class, app, or extension does not match the widget",
+      { code: "IDENTITY_MISMATCH" },
     );
   if (
     typeof i.appIntentIdentifier !== "string" ||
@@ -309,8 +316,14 @@ export function selectBootedDevice(devices: Dict[], requested: string): Dict {
     matches[0]!.state !== "Booted" ||
     matches[0]!.isAvailable === false
   )
-    throw Error(
+    throw new WidgetctlError(
       "The explicitly requested simulator must already be available and booted",
+      {
+        code:
+          matches.length === 1 && matches[0]!.isAvailable !== false
+            ? "DEVICE_NOT_BOOTED"
+            : "DEVICE_NOT_FOUND",
+      },
     );
   return matches[0]!;
 }

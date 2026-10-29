@@ -1,3 +1,4 @@
+import { WidgetctlError, classifyError } from "./errors.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   describeFromMetadata,
@@ -67,17 +68,7 @@ export interface WidgetControllerOptions {
   launchDomain?: string;
   onResult?: (result: BackendResult) => void;
 }
-export class WidgetctlError extends Error {
-  readonly result?: BackendResult;
-  constructor(
-    message: string,
-    options: { result?: BackendResult; cause?: unknown } = {},
-  ) {
-    super(message, { cause: options.cause });
-    this.name = "WidgetctlError";
-    this.result = options.result;
-  }
-}
+export { WidgetctlError } from "./errors.js";
 const successful: Record<BackendOptions["mode"], string> = {
   catalog: "catalogued",
   installedWidgets: "listed",
@@ -101,6 +92,7 @@ function finiteJson(value: unknown, seen = new Set<object>()): void {
   if (typeof value !== "object" || seen.has(value))
     throw new WidgetctlError(
       "Configuration must contain finite, acyclic JSON values",
+      { code: "INVALID_INPUT" },
     );
   seen.add(value);
   const array = Array.isArray(value);
@@ -110,6 +102,7 @@ function finiteJson(value: unknown, seen = new Set<object>()): void {
   )
     throw new WidgetctlError(
       "Configuration must contain plain JSON objects and arrays",
+      { code: "INVALID_INPUT" },
     );
   for (const key of Reflect.ownKeys(value)) {
     if (array && key === "length") continue;
@@ -120,16 +113,21 @@ function finiteJson(value: unknown, seen = new Set<object>()): void {
     )
       throw new WidgetctlError(
         "Configuration must contain enumerable JSON keys",
+        { code: "INVALID_INPUT" },
       );
     const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
     if (!("value" in descriptor))
-      throw new WidgetctlError("Configuration cannot contain accessors");
+      throw new WidgetctlError("Configuration cannot contain accessors", {
+        code: "INVALID_INPUT",
+      });
     finiteJson(descriptor.value, seen);
   }
   if (array)
     for (let index = 0; index < value.length; index++)
       if (!Object.hasOwn(value, index))
-        throw new WidgetctlError("Configuration cannot contain sparse arrays");
+        throw new WidgetctlError("Configuration cannot contain sparse arrays", {
+          code: "INVALID_INPUT",
+        });
   seen.delete(value);
 }
 function configuration(
@@ -154,6 +152,7 @@ function configuration(
   )
     throw new WidgetctlError(
       "Configuration envelope does not match the target widget",
+      { code: "IDENTITY_MISMATCH" },
     );
   const intent = config.intent;
   if (
@@ -180,6 +179,7 @@ function configuration(
   )
     throw new WidgetctlError(
       "Configuration requires the full canonical intent envelope",
+      { code: "INVALID_INPUT" },
     );
   return structuredClone(config);
 }
@@ -199,6 +199,7 @@ function validateTarget(target: WidgetTarget): WidgetTarget {
   )
     throw new WidgetctlError(
       "A widget extension, kind, and supported size are required",
+      { code: "INVALID_INPUT" },
     );
   return {
     extension: target.extension,
@@ -258,7 +259,9 @@ export function createController(
   metadataReader = readConfigurationMetadata,
 ): WidgetController {
   if (typeof options.udid !== "string" || !options.udid.trim())
-    throw new WidgetctlError("An explicit simulator UDID is required");
+    throw new WidgetctlError("An explicit simulator UDID is required", {
+      code: "INVALID_INPUT",
+    });
   const settings = {
     udid: options.udid,
     stateDirectory: options.stateDirectory,
@@ -272,6 +275,7 @@ export function createController(
       return Promise.reject(
         new WidgetctlError(
           "Configuration mutators cannot call operations on the same controller",
+          { code: "INVALID_INPUT" },
         ),
       );
     const pending = queue.then(operation);
@@ -301,13 +305,14 @@ export function createController(
       if (cause instanceof WidgetctlError) throw cause;
       throw new WidgetctlError(
         `Widget operation ${mode} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-        { cause },
+        { ...classifyError(cause), cause },
       );
     }
     try {
       options.onResult?.(result);
     } catch (cause) {
       throw new WidgetctlError("Widget result callback failed", {
+        code: "CALLBACK_FAILED",
         result,
         cause,
       });
@@ -365,7 +370,13 @@ export function createController(
           const value = configuration(result.configuration, bound);
           let metadata: unknown;
           try {
-            metadata = await metadataReader(settings.udid, value);
+            metadata = await metadataReader(
+              settings.udid,
+              value,
+              typeof result.numberFormat?.locale === "string"
+                ? result.numberFormat.locale
+                : undefined,
+            );
           } catch {
             metadata = undefined;
           }
@@ -387,6 +398,7 @@ export function createController(
             )
               throw new WidgetctlError(
                 "Entity choices require a parameter key of at most 256 characters and a search of at most 512 characters",
+                { code: "INVALID_INPUT" },
               );
             return {
               key,
@@ -413,6 +425,7 @@ export function createController(
             )
               throw new WidgetctlError(
                 "Entity query draft must keep the current intent identifier",
+                { code: "IDENTITY_MISMATCH" },
               );
             signal?.throwIfAborted();
             const result = await run("configurationChoices", {
@@ -508,6 +521,7 @@ export function createController(
           if (typeof iconIdentifier !== "string" || !iconIdentifier.trim())
             throw new WidgetctlError(
               "An exact widget icon identifier is required",
+              { code: "INVALID_INPUT" },
             );
           return iconIdentifier.toUpperCase();
         },
@@ -519,6 +533,7 @@ export function createController(
           if (matches.length !== 1)
             throw new WidgetctlError(
               "Widget icon identifier must match exactly one installed widget",
+              { code: "WIDGET_NOT_FOUND" },
             );
           return bindHandle(
             matches[0]!.target,

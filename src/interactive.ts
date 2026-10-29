@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { isFiniteDecimalString, nativeDecimalString } from "./configuration.js";
 import { stripVTControlCharacters } from "node:util";
+import { isRecoverableChoiceError } from "./errors.js";
 import type { JsonValue, WidgetConfiguration } from "./controller.js";
 
 export interface Choice<T> {
@@ -124,7 +125,7 @@ export async function editConfiguration(
             structuredClone(draft),
           );
         } catch (error) {
-          if (!prompts.search) throw error;
+          if (!isRecoverableChoiceError(error) || !prompts.search) throw error;
           initialError = error;
           write(
             `${error instanceof Error ? error.message : String(error)}. Type to search or choose Back.\n`,
@@ -136,18 +137,31 @@ export async function editConfiguration(
           if (initialError) throw initialError;
           return initialChoices;
         };
+        type FailedChoice = { action: "fatal"; error: unknown };
+        let fatalError: { value: unknown } | undefined;
+        const supersededSearch = (error: unknown, signal?: AbortSignal) =>
+          signal?.aborted &&
+          error === signal.reason &&
+          error instanceof Error &&
+          ["AbortError", "AbortPromptError"].includes(error.name);
+        const failedChoice = (error: unknown): Choice<FailedChoice> => ({
+          name: `Choice lookup failed: ${error instanceof Error ? error.message : String(error)}. Return to session`,
+          value: { action: "fatal", error },
+        });
         if (prompts.search && field.type === "entities") {
           const selected = Array.isArray(current)
             ? structuredClone(current)
             : [];
           type Selection =
             | { action: "done" | "back" | "json" }
-            | { action: "toggle"; value: JsonValue };
+            | { action: "toggle"; value: JsonValue }
+            | FailedChoice;
           let fallback = false;
           for (;;) {
             const choice = await prompts.search<Selection>(
               field.label,
               async (term, signal) => {
+                if (fatalError) return [failedChoice(fatalError.value)];
                 try {
                   return [
                     { name: "Done", value: { action: "done" } },
@@ -162,6 +176,11 @@ export async function editConfiguration(
                     })),
                   ];
                 } catch (error) {
+                  if (supersededSearch(error, signal)) return [];
+                  if (!isRecoverableChoiceError(error)) {
+                    fatalError = { value: error };
+                    return [failedChoice(error)];
+                  }
                   return [
                     { name: "Back", value: { action: "back" } },
                     {
@@ -172,6 +191,8 @@ export async function editConfiguration(
                 }
               },
             );
+            if (fatalError) throw fatalError.value;
+            if (choice.action === "fatal") throw choice.error;
             if (choice.action === "done") {
               draft.intent.parameters[key] = selected;
               break;
@@ -193,10 +214,13 @@ export async function editConfiguration(
           if (!fallback) continue;
         } else if (prompts.search) {
           type Selection =
-            { action: "back" | "json" } | { action: "value"; value: JsonValue };
+            | { action: "back" | "json" }
+            | { action: "value"; value: JsonValue }
+            | FailedChoice;
           const choice = await prompts.search<Selection>(
             field.label,
             async (term, signal) => {
+              if (fatalError) return [failedChoice(fatalError.value)];
               try {
                 return [
                   { name: "Back", value: { action: "back" } },
@@ -210,6 +234,11 @@ export async function editConfiguration(
                   },
                 ];
               } catch (error) {
+                if (supersededSearch(error, signal)) return [];
+                if (!isRecoverableChoiceError(error)) {
+                  fatalError = { value: error };
+                  return [failedChoice(error)];
+                }
                 return [
                   { name: "Back", value: { action: "back" } },
                   {
@@ -220,6 +249,8 @@ export async function editConfiguration(
               }
             },
           );
+          if (fatalError) throw fatalError.value;
+          if (choice.action === "fatal") throw choice.error;
           if (choice.action === "back") continue;
           if ("value" in choice) {
             draft.intent.parameters[key] = choice.value;
@@ -228,11 +259,7 @@ export async function editConfiguration(
         } else if (initialChoices.length)
           field = { ...field, choices: initialChoices };
       } catch (error) {
-        if (
-          error instanceof Error &&
-          ["ExitPromptError", "AbortPromptError"].includes(error.name)
-        )
-          throw error;
+        if (!isRecoverableChoiceError(error)) throw error;
         write(
           `Choice lookup unavailable: ${error instanceof Error ? error.message : String(error)}\n`,
         );

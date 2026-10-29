@@ -7,9 +7,13 @@ import {
   type WidgetController,
   type WidgetControllerOptions,
   type WidgetTarget,
+  type WidgetCatalog,
+  type InstalledWidget,
 } from "./controller.js";
 import { listSimulators, type Simulator } from "./discovery.js";
 import { command } from "./backend-runtime.js";
+import { doctor } from "./doctor.js";
+import { WidgetctlError, classifyError } from "./errors.js";
 import {
   createPrompts,
   terminalText,
@@ -24,6 +28,7 @@ Usage: widgetctl                         Guided mode in a terminal
        widgetctl <command> --device <UDID> [options]
 
 Commands:
+  doctor        Check simulator tooling and readiness without changing state
   devices       List available iOS simulators
   catalog       Discover apps, widget kinds and supported sizes
   list          List installed widgets with exact identities and positions
@@ -59,6 +64,7 @@ failure, 2 invalid input or unverified outcome, 130 cancelled.
 `;
 export interface CliRuntime {
   isTTY: boolean;
+  doctor: typeof doctor;
   stdout(text: string): void;
   stderr(text: string): void;
   devices(): Promise<Simulator[]>;
@@ -77,6 +83,7 @@ const defaults: CliRuntime = {
     process.stderr.write(text);
   },
   devices: listSimulators,
+  doctor,
   boot: async (udid) => {
     await command(["xcrun", "simctl", "boot", udid]);
     await command(["xcrun", "simctl", "bootstatus", udid, "-b"], 120000);
@@ -88,11 +95,30 @@ const defaults: CliRuntime = {
     await writeFile(path, text, { mode: 0o600 });
   },
 };
-class InputError extends Error {}
+class InputError extends WidgetctlError {
+  constructor(
+    message: string,
+    code: import("./errors.js").WidgetctlErrorCode = "INVALID_INPUT",
+  ) {
+    super(message, { code });
+  }
+}
 class Cancelled extends Error {}
-class CleanupError extends Error {}
+class CleanupError extends WidgetctlError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, {
+      code: "CLEANUP_FAILED",
+      ...options,
+      recovery: ["Resolve helper release before starting another session."],
+    });
+  }
+}
 const uuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+const isCancellation = (error: unknown) =>
+  error instanceof Cancelled ||
+  (error instanceof Error &&
+    ["ExitPromptError", "AbortPromptError"].includes(error.name));
 const actions = ["add", "edit", "remove", "export", "configure"];
 export async function runCli(
   argv: string[],
@@ -105,7 +131,6 @@ export async function runCli(
     stderr: (text: string) => runtime.stderr(terminalText(text)),
   };
   let json = argv.includes("--json");
-  let started = false;
   const abort = new AbortController();
   const interrupt = () => abort.abort();
   process.once("SIGINT", interrupt);
@@ -154,29 +179,20 @@ export async function runCli(
     const guided = io.isTTY && !json;
     let prompts: Prompts | undefined;
     const getPrompts = async () => (prompts ??= await io.prompts(abort.signal));
+    const persistent = guided && positionals.length === 0;
     let action = positionals[0];
     if (
       positionals.length > 1 ||
-      (action && ![...actions, "devices", "catalog", "list"].includes(action))
+      (action &&
+        ![...actions, "devices", "catalog", "list", "doctor"].includes(
+          action ?? "",
+        ))
     )
       throw new InputError(
         "Choose one supported command. Run widgetctl --help.",
       );
-    if (!action) {
-      if (!guided)
-        throw new InputError("A command is required. Run widgetctl --help.");
-      action = await (
-        await getPrompts()
-      ).select("What would you like to do?", [
-        { name: "Add or reveal a widget", value: "add" },
-        { name: "Edit widget configuration", value: "edit" },
-        { name: "Remove a widget", value: "remove" },
-        { name: "Export configuration", value: "export" },
-        { name: "Apply configuration from a file", value: "configure" },
-        { name: "Exit", value: "$exit" },
-      ]);
-      if (action === "$exit") throw new Cancelled();
-    }
+    if (!action && !persistent)
+      throw new InputError("A command is required. Run widgetctl --help.");
     if (values.device && !uuid(values.device))
       throw new InputError("--device must be an explicit simulator UUID.");
     if (values.widget && !uuid(values.widget))
@@ -191,6 +207,7 @@ export async function runCli(
     if (values.position && values.position !== "top")
       throw new InputError("--position supports only top.");
     if (
+      !persistent &&
       action !== "add" &&
       [
         values.app,
@@ -207,14 +224,14 @@ export async function runCli(
       );
     if (
       values.widget &&
-      !["edit", "remove", "export", "configure"].includes(action)
+      !["edit", "remove", "export", "configure"].includes(action ?? "")
     )
       throw new InputError(
         "--widget requires edit, remove, export or configure.",
       );
-    if (values.file && !["export", "configure"].includes(action))
+    if (values.file && !["export", "configure"].includes(action ?? ""))
       throw new InputError("--file requires export or configure.");
-    if (!guided && action !== "devices") {
+    if (!guided && !["devices", "doctor"].includes(action ?? "")) {
       if (!values.device)
         throw new InputError("--device is required. Run widgetctl --help.");
       if (
@@ -224,44 +241,63 @@ export async function runCli(
         throw new InputError(
           "add requires --app or --extension, --kind and --size.",
         );
-      if (["remove", "export", "configure"].includes(action) && !values.widget)
+      if (
+        ["remove", "export", "configure"].includes(action ?? "") &&
+        !values.widget
+      )
         throw new InputError(`${action} requires --widget.`);
-      if (["export", "configure"].includes(action) && !values.file)
+      if (["export", "configure"].includes(action ?? "") && !values.file)
         throw new InputError(`${action} requires --file.`);
       if (action === "edit")
         throw new InputError(
           "edit needs an interactive terminal. Use export and configure with --json for automation.",
         );
     }
-    const inputConfiguration =
-      action === "configure" && values.file
-        ? JSON.parse(await io.read(values.file))
-        : undefined;
-    const devices = await io.devices();
-    if (action === "devices") {
+    let device: Simulator | undefined;
+    const diagnose = async () => {
+      const report = await io.doctor({
+        udid: device?.udid ?? values.device,
+        stateDirectory: values["state-dir"],
+      });
       json
-        ? emit({ status: "devices_listed", devices })
+        ? emit({ ...report, status: "diagnosed" })
         : io.stdout(
-            devices
+            report.checks
               .map(
-                (device) =>
-                  `${device.name} • iOS ${device.runtime} • ${device.state} • ${device.udid}`,
+                (check) =>
+                  `${check.status.toUpperCase()} ${check.id}: ${check.message}${check.recovery?.length ? `\n${check.recovery.map((step) => `  ${step}`).join("\n")}` : ""}`,
               )
               .join("\n") + "\n",
           );
-      return 0;
-    }
-    let device = values.device
-      ? devices.find(
-          (device) =>
-            device.udid.toUpperCase() === values.device!.toUpperCase(),
-        )
-      : undefined;
-    if (values.device && !device)
-      throw new InputError("Requested simulator is unavailable.");
-    if (!device) {
+      return report.healthy ? 0 : 1;
+    };
+    if (action === "doctor") return await diagnose();
+    let controller: WidgetController | undefined;
+    let workerAttempted = false;
+    let prepared = false;
+    const release = async (operationError?: unknown) => {
+      try {
+        if (workerAttempted && controller) {
+          if (guided) io.stderr("Releasing the widget helper…\n");
+          await controller.release();
+        }
+      } catch (error) {
+        throw new CleanupError(
+          `${operationError ? `${operationError instanceof Error ? operationError.message : String(operationError)}; ` : ""}Helper release failed: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: operationError ?? error },
+        );
+      } finally {
+        workerAttempted = false;
+        prepared = false;
+        controller = undefined;
+      }
+    };
+    const chooseDevice = async (devices: Simulator[]) => {
       if (!devices.length)
-        throw new InputError("No available iOS simulators found.");
+        throw new InputError(
+          "No available iOS simulators found.",
+          "DEVICE_NOT_FOUND",
+        );
       const selected = await (
         await getPrompts()
       ).select("Choose a simulator you own", [
@@ -272,223 +308,389 @@ export async function runCli(
         { name: "Back / cancel", value: "$back" },
       ]);
       if (selected === "$back") throw new Cancelled();
-      device = devices.find((device) => device.udid === selected)!;
-    }
-    if (device.state !== "booted") {
-      if (!guided)
-        throw new InputError("The selected simulator must already be booted.");
+      const selectedDevice = devices.find(
+        (candidate) => candidate.udid === selected,
+      );
+      if (!selectedDevice)
+        throw new InputError(
+          "Requested simulator is unavailable.",
+          "DEVICE_NOT_FOUND",
+        );
+      return selectedDevice;
+    };
+    const execute = async (commandAction: string) => {
+      action = commandAction;
+      const inputConfiguration =
+        action === "configure" && values.file
+          ? JSON.parse(await io.read(values.file))
+          : undefined;
+      const devices = await io.devices();
+      if (action === "devices") {
+        json
+          ? emit({ status: "devices_listed", devices })
+          : io.stdout(
+              devices
+                .map(
+                  (device) =>
+                    `${device.name} • iOS ${device.runtime} • ${device.state} • ${device.udid}`,
+                )
+                .join("\n") + "\n",
+            );
+        return 0;
+      }
+      if (device) {
+        const current = devices.find(
+          (candidate) =>
+            candidate.udid.toUpperCase() === device!.udid.toUpperCase(),
+        );
+        if (!current)
+          throw new InputError(
+            "Selected simulator is no longer available. Change simulator to continue.",
+            "DEVICE_NOT_FOUND",
+          );
+        device = current;
+      }
+      device ??= values.device
+        ? devices.find(
+            (device) =>
+              device.udid.toUpperCase() === values.device!.toUpperCase(),
+          )
+        : undefined;
+      if (values.device && !device)
+        throw new InputError(
+          "Requested simulator is unavailable.",
+          "DEVICE_NOT_FOUND",
+        );
+      if (!device) device = await chooseDevice(devices);
+      if (device.state !== "booted") {
+        if (prepared) await release();
+        if (!guided)
+          throw new InputError(
+            "The selected simulator must already be booted.",
+            "DEVICE_NOT_BOOTED",
+          );
+        if (
+          !(await (
+            await getPrompts()
+          ).confirm(
+            `Boot ${device.name} (${device.udid}) and claim it for this operation?`,
+            false,
+          ))
+        )
+          throw new Cancelled();
+        await io.boot(device.udid);
+        device = { ...device, state: "booted" };
+      }
+      const needsWorker = action !== "list";
       if (
+        needsWorker &&
+        !prepared &&
+        guided &&
         !(await (
           await getPrompts()
         ).confirm(
-          `Boot ${device.name} (${device.udid}) and claim it for this operation?`,
+          `Prepare ${device.name}? Its UI may restart. Confirm you own this simulator.`,
           false,
         ))
       )
         throw new Cancelled();
-      await io.boot(device.udid);
-    }
-    const needsWorker = action !== "list";
-    if (
-      needsWorker &&
-      guided &&
-      !(await (
-        await getPrompts()
-      ).confirm(
-        `Prepare ${device.name}? Its UI may restart. Confirm you own this simulator.`,
-        false,
-      ))
-    )
-      throw new Cancelled();
-    const controller = io.controller({
-      udid: device.udid,
-      stateDirectory: values["state-dir"],
-      architecture: values.architecture as "arm64" | "x86_64" | undefined,
-      launchDomain: values["launch-domain"],
-    });
-    let result: Record<string, unknown>;
-    started = true;
-    let operationError: unknown;
-    try {
-      if (needsWorker) {
-        if (guided)
-          io.stderr("Preparing the selected simulator's widget helper…\n");
-        await controller.prepare();
-      }
-      abort.signal.throwIfAborted();
-      if (action === "catalog")
-        result = { status: "catalogued", catalog: await controller.catalog() };
-      else if (action === "list")
-        result = {
-          status: "widgets_listed",
-          widgets: await controller.installedWidgets(),
-        };
-      else if (action === "add") {
-        const catalog = await controller.catalog();
-        let target: WidgetTarget | undefined;
-        try {
-          target = await selectCatalogTarget(
-            catalog.apps,
-            values,
-            guided ? await getPrompts() : undefined,
-          );
-        } catch (error) {
-          if (
-            error instanceof Error &&
-            ["ExitPromptError", "AbortPromptError"].includes(error.name)
-          )
-            throw error;
-          throw new InputError(
-            error instanceof Error ? error.message : String(error),
-          );
+      controller ??= io.controller({
+        udid: device.udid,
+        stateDirectory: values["state-dir"],
+        architecture: values.architecture as "arm64" | "x86_64" | undefined,
+        launchDomain: values["launch-domain"],
+      });
+      let result: Record<string, unknown>;
+      let operationError: unknown;
+      try {
+        if (needsWorker && !prepared) {
+          if (guided)
+            io.stderr("Preparing the selected simulator's widget helper…\n");
+          workerAttempted = true;
+          await controller.prepare();
+          prepared = true;
         }
-        if (!target) throw new Cancelled();
         abort.signal.throwIfAborted();
-        const handle = await controller.ensure(target, {
-          replace: values.replace,
-          exclusive: values.exclusive,
-          position: values.position as "top" | undefined,
-        });
-        result = {
-          status: "verified",
-          target: handle.target,
-          iconIdentifier: handle.iconIdentifier,
-        };
-      } else {
-        let icon = values.widget;
-        if (!icon) {
-          const widgets = await controller.installedWidgets();
-          if (!widgets.length)
-            throw new InputError(
-              "No installed widgets found. Add a widget first.",
-            );
-          icon = await (
-            await getPrompts()
-          ).select(
-            "Choose an exact installed widget",
-            widgets.map((widget) => ({
-              name: `${widget.target.container} • ${widget.target.kind} • ${widget.target.size} • ${widget.position ? `page ${widget.position.page + 1}, item ${widget.position.index + 1}` : "position unavailable"} • ${widget.target.iconIdentifier}`,
-              value: widget.target.iconIdentifier!,
-            })),
-          );
-        }
-        const handle = await controller.getWidget(icon);
-        if (action === "remove") {
-          if (
-            guided &&
-            !(await (
-              await getPrompts()
-            ).confirm(`Remove widget ${icon}?`, false))
-          )
-            throw new Cancelled();
-          abort.signal.throwIfAborted();
-          result = { ...(await handle.remove()) };
-        } else if (action === "edit") {
-          const description = await handle.describeConfiguration();
-          const draft = await editConfiguration(
-            description,
-            await getPrompts(),
-            io.stderr,
-            (key, search, configuration, signal) =>
-              handle.configurationChoices(key, search, {
-                configuration,
-                expected: description.configuration,
-                signal: signal ?? abort.signal,
-              }),
-          );
-          if (!draft) throw new Cancelled();
-          abort.signal.throwIfAborted();
+        if (action === "catalog")
           result = {
-            status: "configuration_applied",
-            configuration: await handle.applyConfiguration(draft, {
-              expected: description.configuration,
-            }),
+            status: "catalogued",
+            catalog: await controller.catalog(),
+          };
+        else if (action === "list")
+          result = {
+            status: "widgets_listed",
+            widgets: await controller.installedWidgets(),
+          };
+        else if (action === "add") {
+          const catalog = await controller.catalog();
+          let target: WidgetTarget | undefined;
+          try {
+            target = await selectCatalogTarget(
+              catalog.apps,
+              values,
+              guided ? await getPrompts() : undefined,
+            );
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              ["ExitPromptError", "AbortPromptError"].includes(error.name)
+            )
+              throw error;
+            throw new InputError(
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+          if (!target) throw new Cancelled();
+          abort.signal.throwIfAborted();
+          const handle = await controller.ensure(target, {
+            replace: values.replace,
+            exclusive: values.exclusive,
+            position: values.position as "top" | undefined,
+          });
+          result = {
+            status: "verified",
+            target: handle.target,
+            iconIdentifier: handle.iconIdentifier,
           };
         } else {
-          const file =
-            values.file ??
-            (await (
+          let icon = values.widget;
+          if (!icon) {
+            const widgets = await controller.installedWidgets();
+            if (!widgets.length)
+              throw new InputError(
+                "No installed widgets found. Add a widget first.",
+                "WIDGET_NOT_FOUND",
+              );
+            icon = await (
               await getPrompts()
-            ).input(
-              action === "export"
-                ? "Export file path"
-                : "Configuration file path",
-            ));
-          if (!file.trim()) throw new InputError("A file path is required.");
-          if (action === "export") {
-            const configuration = await handle.exportConfiguration();
+            ).select("Choose an exact installed widget", [
+              ...widgets.map((widget) => ({
+                name: `${widget.target.container} • ${widget.target.kind} • ${widget.target.size} • ${widget.position ? `page ${widget.position.page + 1}, item ${widget.position.index + 1}` : "position unavailable"} • ${widget.target.iconIdentifier}`,
+                value: widget.target.iconIdentifier!,
+              })),
+              { name: "Back / cancel", value: "$back" },
+            ]);
+          }
+          if (icon === "$back") throw new Cancelled();
+          const handle = await controller.getWidget(icon);
+          if (action === "remove") {
+            if (
+              guided &&
+              !(await (
+                await getPrompts()
+              ).confirm(`Remove widget ${icon}?`, false))
+            )
+              throw new Cancelled();
             abort.signal.throwIfAborted();
-            await io.write(file, `${JSON.stringify(configuration, null, 2)}\n`);
-            result = {
-              status: "configuration_exported",
-              file,
-              iconIdentifier: icon,
-            };
-          } else {
-            const configuration =
-              inputConfiguration ?? JSON.parse(await io.read(file));
+            result = { ...(await handle.remove()) };
+          } else if (action === "edit") {
+            const description = await handle.describeConfiguration();
+            const draft = await editConfiguration(
+              description,
+              await getPrompts(),
+              io.stderr,
+              (key, search, configuration, signal) =>
+                handle.configurationChoices(key, search, {
+                  configuration,
+                  expected: description.configuration,
+                  signal: signal ?? abort.signal,
+                }),
+            );
+            if (!draft) throw new Cancelled();
             abort.signal.throwIfAborted();
             result = {
               status: "configuration_applied",
-              configuration: await handle.applyConfiguration(configuration),
+              configuration: await handle.applyConfiguration(draft, {
+                expected: description.configuration,
+              }),
             };
+          } else {
+            const file =
+              values.file ??
+              (await (
+                await getPrompts()
+              ).input(
+                action === "export"
+                  ? "Export file path"
+                  : "Configuration file path",
+              ));
+            if (!file.trim()) throw new InputError("A file path is required.");
+            if (action === "export") {
+              const configuration = await handle.exportConfiguration();
+              abort.signal.throwIfAborted();
+              await io.write(
+                file,
+                `${JSON.stringify(configuration, null, 2)}\n`,
+              );
+              result = {
+                status: "configuration_exported",
+                file,
+                iconIdentifier: icon,
+              };
+            } else {
+              const configuration =
+                inputConfiguration ?? JSON.parse(await io.read(file));
+              abort.signal.throwIfAborted();
+              result = {
+                status: "configuration_applied",
+                configuration: await handle.applyConfiguration(configuration),
+              };
+            }
           }
+        }
+      } catch (error) {
+        operationError = error;
+        if (
+          persistent &&
+          prepared &&
+          ["add", "edit", "remove", "configure"].includes(action) &&
+          !isCancellation(error)
+        )
+          await release(error);
+        throw error;
+      } finally {
+        if (!persistent || (workerAttempted && !prepared))
+          await release(operationError);
+      }
+      abort.signal.throwIfAborted();
+      if (json) emit(result);
+      else if (action === "catalog") {
+        const catalog = result.catalog as WidgetCatalog;
+        io.stdout(
+          catalog.apps.length
+            ? catalog.apps
+                .map(
+                  (app) =>
+                    `${app.name} • ${app.bundleIdentifier}\n${app.widgets.map((widget) => `  ${widget.name ?? widget.target.kind} • ${widget.target.extension} • ${widget.sizes.join(", ")}`).join("\n")}`,
+                )
+                .join("\n") + "\n"
+            : "No installed widget kinds found.\n",
+        );
+      } else if (action === "list") {
+        const widgets = result.widgets as InstalledWidget[];
+        io.stdout(
+          widgets.length
+            ? widgets
+                .map(
+                  (widget) =>
+                    `${widget.target.container} • ${widget.target.kind} • ${widget.target.size} • ${widget.target.iconIdentifier}${widget.position ? ` • page ${widget.position.page + 1}, item ${widget.position.index + 1}` : ""}`,
+                )
+                .join("\n") + "\n"
+            : "No installed widgets found.\n",
+        );
+      } else
+        io.stdout(
+          `${String(result.status).replaceAll("_", " ")}${result.iconIdentifier ? ` • ${result.iconIdentifier}` : ""}${result.file ? ` • ${result.file}` : ""}\n`,
+        );
+      return 0;
+    };
+    if (!persistent) return await execute(action!);
+    let sessionError: unknown;
+    try {
+      for (;;) {
+        abort.signal.throwIfAborted();
+        io.stdout(
+          `\n${device ? `${device.name} • ${device.udid}` : "No simulator selected"} • ${prepared ? "helper ready" : "helper not prepared"}\n`,
+        );
+        const selected = await (
+          await getPrompts()
+        ).select("What would you like to do?", [
+          { name: "Add or reveal a widget", value: "add" },
+          { name: "Edit widget configuration", value: "edit" },
+          { name: "Remove a widget", value: "remove" },
+          { name: "Export configuration", value: "export" },
+          { name: "Apply configuration from a file", value: "configure" },
+          { name: "Browse installed widget catalog", value: "catalog" },
+          { name: "List installed widgets", value: "list" },
+          { name: "Check tooling and readiness", value: "doctor" },
+          { name: "Change simulator", value: "$device" },
+          { name: "Exit", value: "$exit" },
+        ]);
+        abort.signal.throwIfAborted();
+        if (selected === "$exit") return 0;
+        try {
+          if (selected === "$device") {
+            await release();
+            device = undefined;
+            values.device = undefined;
+            device = await chooseDevice(await io.devices());
+            continue;
+          }
+          if (selected === "doctor") {
+            await diagnose();
+            continue;
+          }
+          await execute(selected);
+        } catch (error) {
+          if (
+            abort.signal.aborted ||
+            error instanceof CleanupError ||
+            (error instanceof Error &&
+              ["ExitPromptError", "AbortPromptError"].includes(error.name))
+          )
+            throw error;
+          if (isCancellation(error)) {
+            io.stderr("Action cancelled.\n");
+            continue;
+          }
+          const failure = classifyError(error);
+          if (
+            [
+              "OWNERSHIP_LOST",
+              "UNSAFE_STATE",
+              "CLEANUP_FAILED",
+              "HELPER_UNAVAILABLE",
+            ].includes(failure.code)
+          )
+            throw error;
+          if (
+            [
+              "VERIFICATION_FAILED",
+              "COMMAND_TIMEOUT",
+              "CALLBACK_FAILED",
+              "OPERATION_FAILED",
+            ].includes(failure.code)
+          )
+            await release(error);
+          io.stderr(
+            `${failure.message}\n${failure.recovery.map((step) => `${step}\n`).join("")}`,
+          );
         }
       }
     } catch (error) {
-      operationError = error;
+      sessionError = error;
       throw error;
     } finally {
-      try {
-        if (needsWorker) {
-          if (guided) io.stderr("Releasing the widget helper…\n");
-          await controller.release();
-        }
-      } catch (cleanupError) {
-        if (operationError)
-          throw new CleanupError(
-            `${operationError instanceof Error ? operationError.message : String(operationError)}; helper release also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
-            { cause: operationError },
-          );
-        throw new CleanupError(
-          `Helper release failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
-          { cause: cleanupError },
-        );
-      }
+      await release(sessionError);
     }
-    abort.signal.throwIfAborted();
-    json
-      ? emit(result)
-      : io.stdout(
-          `${String(result.status).replaceAll("_", " ")}${result.iconIdentifier ? ` • ${result.iconIdentifier}` : ""}\n${["catalog", "list"].includes(action) ? JSON.stringify(result.catalog ?? result.widgets, null, 2) + "\n" : ""}`,
-        );
-    return 0;
   } catch (error) {
+    const failure = classifyError(error);
     const cancelled =
+      failure.code !== "CLEANUP_FAILED" &&
       !(error instanceof CleanupError) &&
-      (error instanceof Cancelled ||
+      (isCancellation(error) ||
         abort.signal.aborted ||
-        (error instanceof Error &&
-          ["ExitPromptError", "AbortPromptError"].includes(error.name)));
-    const message = cancelled
-      ? "Cancelled."
-      : error instanceof Error
-        ? error.message
-        : String(error);
+        failure.code === "CANCELLED");
+    const message = cancelled ? "Cancelled." : failure.message;
     const result = {
+      code: cancelled ? "CANCELLED" : failure.code,
+      recovery: cancelled ? [] : failure.recovery,
+      retryable: cancelled ? false : failure.retryable,
       status: cancelled ? "cancelled" : "failed",
       error: message,
     };
     json
       ? emit(result)
       : io.stderr(
-          `${message}\n${error instanceof InputError ? "Run widgetctl --help for usage.\n" : ""}`,
+          `${message}\n${cancelled ? "" : failure.recovery.map((step) => `${step}\n`).join("")}`,
         );
     return cancelled
       ? 130
-      : error instanceof InputError || !started
+      : error instanceof InputError
         ? 2
-        : /unverified|duplicate/.test(message)
+        : ["INVALID_INPUT", "VERIFICATION_FAILED", "AMBIGUOUS_TARGET"].includes(
+              failure.code,
+            )
           ? 2
           : 1;
   } finally {

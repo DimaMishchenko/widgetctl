@@ -20,6 +20,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run test:examples
+      - run: npm run test:performance
       - run: npm run format:check
       - name: Compile native worker
         if: runner.os == 'macOS'

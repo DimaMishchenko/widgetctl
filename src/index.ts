@@ -32,3 +32,8 @@ export type {
   ConfigurationField,
   ConfigurationDescription,
 } from "./configuration.js";
+
+export { classifyError } from "./errors.js";
+export type { WidgetctlErrorCode, ErrorDetails } from "./errors.js";
+export { doctor } from "./doctor.js";
+export type { DoctorOptions, DoctorCheck, DoctorReport } from "./doctor.js";

@@ -1,3 +1,4 @@
+import { WidgetctlError } from "./errors.js";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import * as fs from "node:fs/promises";
@@ -26,12 +27,27 @@ export async function command(
   timeout = 15000,
 ): Promise<string> {
   assertLockOwnership();
-  const { stdout } = await execute(args[0]!, args.slice(1), {
-    timeout,
-    killSignal: "SIGKILL",
-    maxBuffer: 16 * 1024 * 1024,
-    encoding: "utf8",
-  });
+  let stdout: string;
+  try {
+    ({ stdout } = await execute(args[0]!, args.slice(1), {
+      timeout,
+      killSignal: "SIGKILL",
+      maxBuffer: 16 * 1024 * 1024,
+      encoding: "utf8",
+    }));
+  } catch (cause) {
+    if (cause && typeof cause === "object" && "killed" in cause && cause.killed)
+      throw new WidgetctlError(
+        `Command ${path.basename(args[0]!)} exceeded its ${timeout}ms deadline; an in-flight operation may have completed`,
+        { code: "COMMAND_TIMEOUT", cause },
+      );
+    if (args[0] === "xcrun" && process.platform !== "darwin")
+      throw new WidgetctlError(
+        "iOS Simulator operations require macOS and full Xcode",
+        { code: "UNSUPPORTED_HOST", cause },
+      );
+    throw cause;
+  }
   assertLockOwnership();
   return stdout;
 }
@@ -64,15 +80,18 @@ export async function prepareDirectory(p: string): Promise<string> {
   );
   try {
     if ((await fs.lstat(p)).isSymbolicLink())
-      throw Error(`State directory must not be a symlink: ${p}`);
+      throw new WidgetctlError(`State directory must not be a symlink: ${p}`, {
+        code: "UNSAFE_STATE",
+      });
   } catch (e: any) {
     if (e.code !== "ENOENT") throw e;
   }
   await fs.mkdir(p, { recursive: true, mode: 0o700 });
   const info = await fs.stat(p);
   if (info.uid !== process.getuid?.() || info.mode & 0o022)
-    throw Error(
+    throw new WidgetctlError(
       `State directory must be owned by this user and not writable by others: ${p}`,
+      { code: "UNSAFE_STATE" },
     );
   return fs.realpath(p);
 }
@@ -116,7 +135,7 @@ export async function withLock<T>(
     info.uid !== process.getuid?.() ||
     info.mode & 0o022
   )
-    throw Error("Unsafe lock ownership");
+    throw new WidgetctlError("Unsafe lock ownership", { code: "UNSAFE_STATE" });
   const utility =
     process.platform === "darwin" ? "/usr/bin/lockf" : "/usr/bin/flock";
   const args =
@@ -140,13 +159,17 @@ export async function withLock<T>(
   });
   const exited = new Promise<number | null>((resolve, reject) => {
     holder.once("error", (error) => {
-      context.lost = Error(`Lock holder failed: ${error.message}`);
+      context.lost = new WidgetctlError(
+        `Lock holder failed: ${error.message}`,
+        { code: "OWNERSHIP_LOST", cause: error },
+      );
       reject(error);
     });
     holder.once("exit", (code, signal) => {
       if (!releasing)
-        context.lost = Error(
+        context.lost = new WidgetctlError(
           `Lock ownership lost (${signal ?? code}); an in-flight operation may have completed`,
+          { code: "OWNERSHIP_LOST" },
         );
       resolve(code);
     });
@@ -161,7 +184,10 @@ export async function withLock<T>(
       holder.once("error", reject);
     }),
     exited.then((code) => {
-      throw Error(`Cannot acquire lock (${code}): ${stderr.trim()}`);
+      throw new WidgetctlError(
+        `Cannot acquire lock (${code}): ${stderr.trim()}`,
+        { code: "DEVICE_BUSY" },
+      );
     }),
   ]);
   try {
@@ -350,12 +376,16 @@ export async function requestWorker(
         current.pid !== live.pid ||
         current.identity !== live.identity
       )
-        throw Error(
+        throw new WidgetctlError(
           "Worker heartbeat changed or stopped while waiting for command response",
+          { code: "HELPER_UNAVAILABLE" },
         );
       await sleep(50);
     }
-    throw Error("No response matching the command nonce within 30 seconds");
+    throw new WidgetctlError(
+      "No response matching the command nonce within 30 seconds",
+      { code: "COMMAND_TIMEOUT" },
+    );
   } finally {
     const pending = await readJson(path.join(session, "command.json"));
     if (pending?.nonce === nonce) {

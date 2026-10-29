@@ -294,3 +294,152 @@ test("numeric schema uses the simulator decimal separator and rejects unknown fo
     "unsupported",
   );
 });
+
+test("metadata title fallbacks prefer compiler defaults without changing canonical values", () => {
+  const config = configuration({ base: "EUR", season: "spring" });
+  const schema = metadata([
+    {
+      ...parameter("base", primitive(0)),
+      title: { key: "baseParameter", defaultValue: "Base", table: "Widgets" },
+    },
+    {
+      ...parameter("season", {
+        linkEnumeration: { wrapper: { identifier: "Season" } },
+      }),
+      title: { defaultValue: "Season" },
+    },
+  ]);
+  schema.enums[0]!.cases[0]!.displayRepresentation.title = {
+    key: "springKey",
+    defaultValue: "Spring default",
+  } as any;
+  const result = describeFromMetadata(config, schema);
+  assert.equal(result.fields[0]!.label, "Base");
+  assert.equal(result.fields[1]!.label, "Season");
+  assert.equal(result.fields[1]!.choices![0]!.label, "Spring default");
+  assert.deepEqual(result.configuration.intent.parameters, {
+    base: "EUR",
+    season: "spring",
+  });
+});
+
+test("installed extension tables resolve regional locales, binary strings and enum titles safely", async () => {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const os = await import("node:os");
+  const { default: plist } = await import("plist");
+  const { resolveMetadataLabels } = await import("../src/configuration.js");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "widgetctl-labels-"));
+  try {
+    const extension = path.join(root, "Widget.appex");
+    await fs.mkdir(path.join(extension, "en.lproj"), { recursive: true });
+    await fs.mkdir(path.join(extension, "uk.lproj"), { recursive: true });
+    await fs.writeFile(
+      path.join(extension, "en.lproj", "Widgets.strings"),
+      plist.build({
+        baseParameter: "Base English",
+        selectedList: "Custom list English",
+      }),
+    );
+    await fs.writeFile(
+      path.join(extension, "uk.lproj", "Widgets.strings"),
+      Buffer.from(
+        "YnBsaXN0MDDSAQIDBF1iYXNlUGFyYW1ldGVyXHNlbGVjdGVkTGlzdGYEEQQwBDcEPgQyBDBuBBIEOAQxBEAEMAQ9BFYAIAQyBDAEOwROBEIEOAgNGyg1AAAAAAAAAQEAAAAAAAAABQAAAAAAAAAAAAAAAAAAAFI=",
+        "base64",
+      ),
+    );
+    const make = (table: unknown = "Widgets") => {
+      const schema = metadata([
+        {
+          ...parameter("base", primitive(0)),
+          title: { key: "baseParameter", defaultValue: "Default base", table },
+        },
+        parameter("season", {
+          linkEnumeration: { wrapper: { identifier: "Season" } },
+        }),
+      ]);
+      schema.enums[0]!.cases[0]!.displayRepresentation.title = {
+        key: "selectedList",
+        table: "Widgets",
+        defaultValue: "Default list",
+      } as any;
+      return schema;
+    };
+    const config = configuration({ base: "EUR", season: "spring" });
+    const schema = make();
+    await resolveMetadataLabels(schema, extension, "en_UA");
+    let result = describeFromMetadata(config, schema);
+    assert.equal(result.fields[0]!.label, "Base English");
+    assert.equal(result.fields[1]!.choices![0]!.label, "Custom list English");
+    await resolveMetadataLabels(schema, extension, "uk_UA");
+    result = describeFromMetadata(config, schema);
+    assert.equal(result.fields[0]!.label, "Базова");
+    assert.equal(result.fields[1]!.choices![0]!.label, "Вибрані валюти");
+    await resolveMetadataLabels(schema, extension, "fr_FR");
+    assert.equal(
+      describeFromMetadata(config, schema).fields[0]!.label,
+      "Default base",
+    );
+    for (const table of [
+      undefined,
+      "Missing",
+      "../../Outside",
+      "/tmp/Outside",
+    ]) {
+      const input = make(table === undefined ? null : table);
+      await resolveMetadataLabels(input, extension, "en_UA");
+      assert.equal(
+        describeFromMetadata(config, input).fields[0]!.label,
+        "Default base",
+      );
+    }
+    const noDefault = make("Missing");
+    delete (noDefault.actions.GardenConfiguration.parameters[0] as any).title
+      .defaultValue;
+    await resolveMetadataLabels(noDefault, extension, "en_UA");
+    assert.equal(
+      describeFromMetadata(config, noDefault).fields[0]!.label,
+      "baseParameter",
+    );
+    await fs.writeFile(
+      path.join(root, "Outside.strings"),
+      plist.build({ baseParameter: "Unsafe external title" }),
+    );
+    await fs.symlink(
+      path.join(root, "Outside.strings"),
+      path.join(extension, "en.lproj", "Linked.strings"),
+    );
+    await fs.symlink(
+      path.join(extension, "en.lproj"),
+      path.join(extension, "de.lproj"),
+    );
+    for (const [locale, table] of [
+      ["en_UA", "Linked"],
+      ["de_DE", "Widgets"],
+      ["../en", "Widgets"],
+    ]) {
+      const input = make(table);
+      await resolveMetadataLabels(input, extension, locale);
+      assert.equal(
+        describeFromMetadata(config, input).fields[0]!.label,
+        "Default base",
+      );
+    }
+    await fs.writeFile(
+      path.join(extension, "en.lproj", "Large.strings"),
+      Buffer.alloc(1024 * 1024 + 1),
+    );
+    const large = make("Large");
+    await resolveMetadataLabels(large, extension, "en_UA");
+    assert.equal(
+      describeFromMetadata(config, large).fields[0]!.label,
+      "Default base",
+    );
+    assert.deepEqual(config.intent.parameters, {
+      base: "EUR",
+      season: "spring",
+    });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

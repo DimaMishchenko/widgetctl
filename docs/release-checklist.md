@@ -17,16 +17,25 @@ This review covers the planned `0.1.0` release. Last checked on 2026-10-29. Refr
 
 The two signed fixture apps cover booleans, strings, localized fractional numbers, enums, entities and entity arrays. Live acceptance on iOS 26.0, 27.0 and Duo 27.1 checked suggestions, search, staged dependent queries without mutation, guarded saves, arrays with zero/one/two selections and restoration. The iOS 27.0 and 27.1 runs used a fresh tarball consumer. A real terminal edit selected an entity, entered a fractional number, reviewed the diff, saved, checked rendering and restored the original values.
 
-The native contract harness has 16 checks. Independent default-model and additional Astra high reviews were completed; substantiated findings were fixed and reviewed again. Saved-state assertions and visually inspected captures are separate checks. Transient simulator/helper failures were retained as failed evidence and retried; no global simulator service was restarted.
+The native contract harness has 20 checks. Independent default-model and additional Astra high reviews were completed; substantiated findings were fixed and reviewed again. Saved-state assertions and visually inspected captures are separate checks. Transient simulator/helper failures were retained as failed evidence and retried; no global simulator service was restarted.
+
+## Additional diagnostics and session acceptance
+
+- [x] Read-only `doctor` checks host tooling, runtime/device availability, app-registry readability and existing helper state, without repair or injection.
+- [x] API and JSON failures expose stable codes and recovery steps; unknown native exception names fail safely without parsing English diagnostics.
+- [x] Guided sessions retain their selected simulator, prepare once, and release on exit/change. Failed mutating actions release before another attempt; writes are never retried automatically.
+- [x] Real terminal add, list and doctor actions use one preparation and one release. Raw terminal Ctrl-C inside a picker exits 130 after release; explicit Back stays in the session.
+- [x] Independent Currency and Apple Reminders outcomes are recorded in [compatibility](compatibility.md). Currency routing and localized-label bugs found there are fixed; legacy Reminders configuration remains explicitly unsupported.
+- [x] The [performance runner](performance.md) preserves raw samples and failure status, detects source changes, distinguishes cold/cached/ready setup and handles interruption with cleanup. Native wall-clock budgets remain environment-specific investigation thresholds.
 
 ## Finish before publishing
 
 ### Package and consumer experience
 
-- [x] The redesigned working tree passed 128 host tests and four Playwright lifecycle tests, including strict packed-consumer types and runnable examples. Exact Node 22.14.0 also passed the complete suite; repeat on the release commit. The clean-consumer package test covers both core and optional Playwright imports/types.
+- [x] The redesigned working tree passed 184 host tests and four Playwright lifecycle tests, including strict packed-consumer types and runnable examples. Exact Node 22.14.0 also passed the complete suite; repeat on the release commit. The clean-consumer package test covers both core and optional Playwright imports/types.
 - [ ] Re-run those gates after `npm ci` in a clean checkout of the final release commit.
 - [ ] Require green CI for that exact final commit on Linux/macOS and Node 22/24. The earlier green commit does not validate later changes.
-- [x] The complete 128-test suite, including packed-consumer acceptance, passes on exact Node **22.14.0**. CI now pins that floor. Repeat for the release commit.
+- [x] The complete suite, including packed-consumer acceptance, passes on exact Node **22.14.0**. CI now pins that floor. Repeat for the release commit.
 - [x] Verify the working-tree tarball installs in a fresh consumer, its CLI runs, and core ESM imports without Playwright. Repeat for the final release artifact if source or dependencies change.
 - [x] Compile a strict tarball consumer with `skipLibCheck: false` and no incidental Node types. The leaked internal `node:util` declaration is fixed and covered by the package test.
 - [x] Packed-consumer imports and strict types pass with Playwright **1.50.0** and the locked development version. Both are now covered by the package regression test. The four lifecycle scenarios pass with the locked version.
