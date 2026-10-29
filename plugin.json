@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "widgetctl",
-  "version": "0.1.2",
-  "description": "Set up iOS Simulator Home Screen widgets with the local widgetctl CLI and API.",
+  "version": "0.2.0",
+  "description": "Set up iOS Simulator Home Screen widgets with a local MCP server, CLI and API.",
   "author": {
     "name": "Dima Mishchenko"
   },
@@ -20,7 +20,7 @@
       "interface": {
         "displayName": "widgetctl",
         "shortDescription": "Set up iOS Simulator widgets",
-        "longDescription": "Add, find, edit and remove individual iOS Simulator Home Screen widgets with the bundled widgetctl CLI. The plugin includes the executable, native worker and runtime dependencies; no separate CLI install is required. Requires macOS, Node 22.14+ and full Xcode. TypeScript and Playwright projects can install the widgetctl npm package separately. Supports verified arm64 iPhone simulator runtimes; physical devices, stacks and Lock Screen widgets are unsupported.",
+        "longDescription": "Add, find, edit and remove individual iOS Simulator Home Screen widgets through local MCP tools or the bundled CLI. Includes a short skill, executable runtimes, native worker and dependencies; no separate CLI installation is required. Requires macOS, Node 22.14+ and full Xcode. TypeScript and Playwright projects install the widgetctl npm package separately. Physical devices, stacks and Lock Screen widgets are unsupported.",
         "developerName": "Dima Mishchenko",
         "category": "Developer Tools",
         "websiteURL": "https://github.com/DimaMishchenko/widgetctl",

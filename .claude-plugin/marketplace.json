@@ -7,7 +7,8 @@
     {
       "name": "widgetctl",
       "source": "./",
-      "description": "Set up iOS Simulator Home Screen widgets with the local widgetctl CLI and API."
+      "description": "Set up iOS Simulator widgets with the bundled skill, CLI and local MCP server."
     }
-  ]
+  ],
+  "description": "Local tools and a skill for iOS Simulator widget setup, configuration and testing."
 }

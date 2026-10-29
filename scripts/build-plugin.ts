@@ -14,7 +14,7 @@ const builtins = new Set(
 export async function pluginRuntime(): Promise<Map<string, Uint8Array>> {
   const result = await build({
     absWorkingDir: root,
-    entryPoints: ["src/cli.ts"],
+    entryPoints: { widgetctl: "src/cli.ts", mcp: "src/mcp.ts" },
     bundle: true,
     platform: "node",
     format: "esm",
@@ -23,7 +23,8 @@ export async function pluginRuntime(): Promise<Map<string, Uint8Array>> {
     legalComments: "eof",
     write: false,
     metafile: true,
-    outfile: "widgetctl.mjs",
+    outdir: "scripts",
+    outExtension: { ".js": ".mjs" },
     banner: {
       js: 'import { createRequire as __widgetctlCreateRequire } from "node:module"; const require = __widgetctlCreateRequire(import.meta.url);',
     },
@@ -37,7 +38,10 @@ export async function pluginRuntime(): Promise<Map<string, Uint8Array>> {
         );
   const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   const files = new Map<string, Uint8Array>([
-    ["scripts/widgetctl.mjs", result.outputFiles[0]!.contents],
+    ...result.outputFiles.map((output): [string, Uint8Array] => [
+      `scripts/${output.path.split("/").at(-1)!}`,
+      output.contents,
+    ]),
     [
       "package.json",
       Buffer.from(
@@ -165,7 +169,7 @@ async function main() {
     await writeFile(join(skill, name), bytes);
   }
   console.log(
-    `Built standalone plugin CLI (${files.get("scripts/widgetctl.mjs")!.length} bytes; ${files.size} runtime/license files)`,
+    `Built standalone plugin CLI and MCP (${files.get("scripts/widgetctl.mjs")!.length} CLI bytes; ${files.get("scripts/mcp.mjs")!.length} MCP bytes; ${files.size} runtime/license files)`,
   );
 }
 

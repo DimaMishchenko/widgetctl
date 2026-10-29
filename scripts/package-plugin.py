@@ -15,13 +15,16 @@ def package_plugin(root, output):
         if manifest.get("name") != "widgetctl" or manifest.get("version") != version:
             raise ValueError(f"{name} must match package.json name and version")
     files = manifest_paths + [
+        "mcp.json",
+        ".mcp.json",
         ".agents/plugins/marketplace.json",
         ".claude-plugin/marketplace.json",
         "LICENSE",
         "assets/plugin-icon.svg",
+        "assets/plugin-icon.png",
     ]
     skill_root = root / "skills/widgetctl"
-    maintained = {"SKILL.md", "agents/openai.yaml", "package.json", "scripts/widgetctl.mjs", "native/worker.m"}
+    maintained = {"SKILL.md", "agents/openai.yaml", "package.json", "scripts/widgetctl.mjs", "scripts/mcp.mjs", "native/worker.m"}
     for path in sorted(skill_root.rglob("*")):
         relative = path.relative_to(skill_root)
         if any(part.startswith(".") or part in {"node_modules", "__pycache__"} for part in relative.parts):

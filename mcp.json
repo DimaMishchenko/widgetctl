@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "widgetctl": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/skills/widgetctl/scripts/mcp.mjs"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

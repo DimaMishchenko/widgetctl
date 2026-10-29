@@ -9,11 +9,12 @@ Use this checklist for every version. Record results, exact commit, artifact has
 - [ ] Review changes and release notes independently, including support limits and cleanup behavior.
 - [ ] From a clean checkout, run `npm ci`, `npm test`, `npm run test:playwright`, `npm run test:examples`, `npm run test:performance` and `npm run format:check`.
 - [ ] Require green final-commit Linux/macOS CI on Node 22.14 and 24. Native compilation alone does not establish live support.
-- [ ] Inspect the production dependency audit and package file list. Build `npm pack` and `npm run pack:plugin`; retain SHA-256 checksums. The plugin ZIP must include its referenced icons, complete skill directory, bundled CLI, native worker and dependency licenses, without local evidence or development dependencies.
+- [ ] Inspect the production dependency audit and package file list. Build `npm pack` and `npm run pack:plugin`; retain SHA-256 checksums. The plugin ZIP must include its referenced icons, complete skill directory, bundled CLI and MCP server, both MCP configurations, native worker and dependency licenses, without local evidence or development dependencies.
 
 ## Test the final tarball
 
 - [ ] Install it in a fresh project. Check CLI help, core ESM imports without Playwright, strict TypeScript types and the optional Playwright import. Check an isolated global CLI installation too.
+- [ ] Connect an MCP client to the installed `widgetctl-mcp` and extracted plugin server. Verify initialize/tools/list, structured errors, strict argument validation, cancellation and clean shutdown. Run add/edit/stale-guard/restore/remove through MCP on both fixture apps; inspect the rendered results.
 - [ ] Copy its included examples. Run configuration and CLI/Playwright operations on an explicitly owned, booted simulator with signed fixture apps. Prepare before attaching native UI drivers and close drivers before release.
 - [ ] Use both fixture apps to check actual queries, edits, stale guards, arrays and restoration. Inspect before/edited/restored screenshots; persisted values alone do not prove rendering.
 - [ ] Verify failed setup and normal teardown release the helper. Preserve unrelated widget identities. Delete only task-owned disposable simulators and helpers; never restart global services.
@@ -32,6 +33,6 @@ Use this checklist for every version. Record results, exact commit, artifact has
 
 Live development coverage includes individual Home Screen widgets on arm64 iPhone simulators running iOS 26.0, 27.0 and Duo 27.1. Record the exact runtime retested for each release. iPad and Intel remain unverified; physical devices, stacks and Lock Screen widgets are unsupported. Apple private API changes can break compatibility after an OS or Xcode update.
 
-Preserve public behavior within `0.1.x`; document breaking changes in minor versions before 1.0. For a bad release, publish a fixed patch and, when necessary, deprecate the bad npm version or move its distribution tag to the last verified version. Keep published Git tags immutable. Plugin uninstall and npm uninstall are separate operations.
+Preserve public behavior within each `0.x` minor version; document breaking changes in minor versions before 1.0. For a bad release, publish a fixed patch and, when necessary, deprecate the bad npm version or move its distribution tag to the last verified version. Keep published Git tags immutable. Plugin uninstall and npm uninstall are separate operations.
 
 The [Currency rollout issue](https://github.com/DimaMishchenko/widgetctl/issues/1) remains a separate consuming-project update with its own native verification.

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "widgetctl": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/skills/widgetctl/scripts/mcp.mjs"]
+    }
+  }
+}

@@ -8,7 +8,7 @@ Pick an app, widget and size in your terminal. Edit its settings, reproduce a te
 
 - 🎯 Pick installed apps, widgets and sizes in the terminal
 - ⚙️ Edit typed widget settings before saving
-- 🤖 Automate with explicit arguments and JSON output
+- 🤖 Use local MCP tools, or explicit CLI arguments and JSON output
 - 🧪 Use TypeScript and Playwright fixtures
 - 💾 Export and restore exact saved configuration
 
@@ -31,11 +31,11 @@ npm install --global widgetctl
 widgetctl
 ```
 
-For reproducible installs, use `widgetctl@0.1.2` and keep your lockfile. [Distribution and releases →](docs/distribution.md)
+For reproducible installs, use `widgetctl@0.2.0` and keep your lockfile. [Distribution and releases →](docs/distribution.md)
 
 ## Agent skill and plugins
 
-The plugin includes the CLI. Agents can use it immediately without a separate npm installation.
+The plugin bundles **the skill, CLI and local MCP server**. Agents can use it without a separate npm installation.
 
 The short [widgetctl skill](skills/widgetctl/SKILL.md) teaches agents when to use the tool, JSON discovery, safe configuration edits and simulator ownership.
 
@@ -45,7 +45,13 @@ Add this repository as a Codex marketplace:
 codex plugin marketplace add DimaMishchenko/widgetctl
 ```
 
-Then install **widgetctl** from that marketplace in the desktop Plugins directory. The plugin includes the CLI and its dependencies. [Codex, Claude Code and standalone skill setup →](docs/agents.md)
+Then install **widgetctl** from that marketplace in the desktop Plugins directory. The plugin includes its runtime dependencies. [Codex, Claude Code and standalone skill setup →](docs/agents.md)
+
+For Claude Code:
+
+```text
+/plugin install widgetctl --marketplace DimaMishchenko/widgetctl
+```
 
 ## CLI
 
@@ -65,6 +71,17 @@ npx widgetctl add --device "$SIMULATOR_UDID" \
 ```
 
 Set `SIMULATOR_UDID` to your reserved, booted simulator and replace the example app/kind with values from `catalog`. JSON mode never prompts. [CLI and configuration guide →](docs/usage.md)
+
+## Local MCP
+
+For an MCP client on your Mac, install globally and register this command:
+
+```sh
+npm install --global widgetctl
+widgetctl-mcp
+```
+
+The client launches the process over stdio. It exposes device/app discovery, widget setup, settings and exact-instance removal. No account or hosted server is needed. Plugins register the bundled server for you; standalone skills use the bundled CLI. [MCP configuration and tools →](docs/mcp.md)
 
 ## TypeScript
 

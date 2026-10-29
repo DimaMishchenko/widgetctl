@@ -1,6 +1,6 @@
 {
   "name": "widgetctl",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Programmatic iOS Simulator widget setup for tests",
   "type": "module",
   "license": "MIT",
@@ -12,7 +12,8 @@
     "node": ">=22.14.0"
   },
   "bin": {
-    "widgetctl": "./dist/cli.js"
+    "widgetctl": "./dist/cli.js",
+    "widgetctl-mcp": "./dist/mcp.js"
   },
   "exports": {
     ".": {
@@ -36,7 +37,10 @@
     "plugin.json",
     ".agents/plugins/marketplace.json",
     ".claude-plugin",
-    "assets/plugin-icon.svg"
+    "assets/plugin-icon.svg",
+    "mcp.json",
+    ".mcp.json",
+    "assets/plugin-icon.png"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -55,8 +59,10 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.5",
+    "@modelcontextprotocol/server": "^2.4.0",
     "bplist-parser": "^0.3.2",
-    "plist": "^3.1.0"
+    "plist": "^3.1.0",
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
     "@playwright/test": ">=1.50.0 <2"
@@ -67,6 +73,7 @@
     }
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
     "@playwright/test": "^1.56.0",
     "@types/node": "^22.19.0",
     "@types/plist": "^3.0.5",

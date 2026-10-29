@@ -1,6 +1,6 @@
 ---
 name: widgetctl
-description: Add, find and configure individual iOS Simulator Home Screen widgets for tests using the local widgetctl CLI, TypeScript API or Playwright fixture.
+description: Add, find and configure individual iOS Simulator Home Screen widgets for tests using local MCP tools, the widgetctl CLI, TypeScript API or Playwright fixture.
 ---
 
 # widgetctl
@@ -9,7 +9,7 @@ Use widgetctl for deterministic widget setup, exact identities and saved configu
 
 ## Start
 
-Requires macOS, Node 22.14+, full Xcode and an installed widget app. Launch the containing app once before catalog discovery. The plugin and standalone skill include a self-contained CLI; no separate npm install is needed for agent CLI operations.
+Requires macOS, Node 22.14+, full Xcode and an installed widget app. Launch the containing app once before catalog discovery. The plugin and standalone skill bundle the CLI and MCP runtime. Plugins register MCP; standalone skill installs do not. No separate npm CLI install is needed.
 
 Resolve this skill's directory and set `WIDGETCTL` to the absolute path of `scripts/widgetctl.mjs` inside it. Run `node "$WIDGETCTL" --help` and `node "$WIDGETCTL" doctor --json`. The bundled CLI requires Node 22.14+ but installs no packages and changes no global PATH. Use it for the commands below. For TypeScript or Playwright imports in a project, install `widgetctl` (and `@playwright/test` for the fixture) as project dev dependencies and preserve the lockfile.
 
@@ -17,7 +17,7 @@ Reserve one simulator per worker and use its explicit, already booted UDID. Prep
 
 ## Choose the interface
 
-For individual operations, use CLI commands with `--json` (no prompts). Examples below use the bundled CLI. Discover actual values rather than guessing bundle IDs, kinds, sizes or widget identities:
+For individual operations, prefer registered widgetctl MCP tools when available; otherwise use CLI commands with `--json` (no prompts). MCP calls require explicit `udid`; configuration apply requires both the edited full envelope and the freshly exported `expected` envelope. Use returned exact identities after saves. Do not register a second MCP server when the plugin already provides one. Examples below use the bundled CLI. Discover actual values rather than guessing bundle IDs, kinds, sizes or widget identities:
 
 ```sh
 node "$WIDGETCTL" devices --json
@@ -27,7 +27,7 @@ node "$WIDGETCTL" add --device "$SIMULATOR_UDID" \
 node "$WIDGETCTL" list --device "$SIMULATOR_UDID" --json
 ```
 
-CLI operations prepare and release automatically. For repeated operations under one native driver connection, prefer the TypeScript lifecycle or the `widgetctl/playwright` fixture. Keep `prepare()` inside `try` so even setup failures release:
+CLI and MCP operations prepare and release automatically. For repeated operations under one native driver connection, prefer the TypeScript lifecycle or the `widgetctl/playwright` fixture. Keep `prepare()` inside `try` so even setup failures release:
 
 ```ts
 import { createWidgetController } from "widgetctl";
