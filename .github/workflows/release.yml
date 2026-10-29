@@ -1,0 +1,145 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version already set in package and plugin manifests (for example 0.2.0)
+        required: true
+        type: string
+      dry_run:
+        description: Build and check only; do not publish or require native evidence
+        type: boolean
+        default: true
+      native_evidence_url:
+        description: Same-repo draft release URL ending in /vVERSION/acceptance.json (required to publish)
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22.14.0, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:playwright
+      - run: npm run test:examples
+      - run: npm run test:performance
+      - run: npm run format:check
+      - name: Compile native worker
+        if: runner.os == 'macOS'
+        run: |
+          sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          xcrun --sdk iphonesimulator clang -target arm64-apple-ios18.0-simulator -isysroot "$sdk" \
+            -dynamiclib -framework Foundation -fobjc-arc -Wall -Wextra -Werror \
+            native/worker.m -o "$RUNNER_TEMP/widgetctl-worker.dylib"
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_DRY_RUN: ${{ inputs.dry_run }}
+      EVIDENCE_URL: ${{ inputs.native_evidence_url }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+      - run: npm install --global npm@11.16.0
+      - run: npm ci
+      - name: Check release source and version
+        run: node --import tsx scripts/release.ts source "$RELEASE_VERSION" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+      - name: Build release artifacts once
+        run: |
+          mkdir release
+          npm pack --pack-destination release
+          npm run pack:plugin -- --output release
+      - name: Record artifact checksums
+        run: |
+          cd release
+          sha256sum *.tgz *.zip > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: release/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Dry run summary
+        if: inputs.dry_run
+        run: echo 'Dry run complete. No publication, tag, or release changes. Native acceptance was not checked.' >> "$GITHUB_STEP_SUMMARY"
+  publish:
+    if: ${{ !inputs.dry_run }}
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_DRY_RUN: 'false'
+      EVIDENCE_URL: ${{ inputs.native_evidence_url }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11.16.0
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: release
+      - name: Recheck source, immutable tag and unpublished npm version
+        run: node --import tsx scripts/release.ts source "$RELEASE_VERSION" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+      - name: Verify downloaded artifacts
+        run: |
+          cd release
+          sha256sum --check SHA256SUMS
+      - name: Verify final tarball native acceptance
+        run: |
+          node --import tsx scripts/release.ts evidence "$RELEASE_VERSION" "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$EVIDENCE_URL"
+          (cd release && sha256sum acceptance.json >> SHA256SUMS)
+      - name: Stage GitHub release assets and notes
+        run: |
+          tag="v$RELEASE_VERSION"
+          test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
+          if ! git rev-parse --verify "refs/tags/$tag" >/dev/null 2>&1; then
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+          if [ -f "docs/releases/$RELEASE_VERSION.md" ]; then
+            cp "docs/releases/$RELEASE_VERSION.md" release/notes.md
+          else
+            printf 'Install: `npm install widgetctl@%s`\n\nSupport and verified runtime limits: https://github.com/%s#readme\n\n' "$RELEASE_VERSION" "$GITHUB_REPOSITORY" > release/notes.md
+            gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f "tag_name=$tag" -f "target_commitish=$GITHUB_SHA" --jq .body >> release/notes.md
+          fi
+          gh release upload "$tag" "release/widgetctl-$RELEASE_VERSION.tgz" \
+            "release/widgetctl-plugin-$RELEASE_VERSION.zip" release/SHA256SUMS release/notes.md release/acceptance.json --clobber
+      - name: Publish verified tarball to npm using trusted publishing
+        run: npm publish "release/widgetctl-$RELEASE_VERSION.tgz" --access public --provenance
+      - name: Verify public npm version and exact published bytes
+        run: node --import tsx scripts/release.ts registry "$RELEASE_VERSION" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+      - name: Publish GitHub release
+        run: gh release edit "v$RELEASE_VERSION" --draft=false --latest --notes-file release/notes.md

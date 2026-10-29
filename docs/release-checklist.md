@@ -25,7 +25,7 @@ Use this checklist for every version. Record results, exact commit, artifact has
 - [ ] Install `widgetctl@VERSION` from the registry in a fresh project. Exercise CLI help and both imports; retain the lockfile as evidence.
 - [ ] Tag the exact tested commit as `vVERSION`, push it, and publish a GitHub release with npm tarball, plugin ZIP, checksums, notes and acceptance evidence.
 - [ ] Test marketplace discovery/installation at the release tag in an isolated Codex client. Record Claude installation separately; schema validation is not an end-to-end client test.
-- [ ] Report provenance accurately. A local authenticated npm publish does not generate GitHub Actions provenance. Configure [trusted publishing](https://docs.npmjs.com/trusted-publishers/) for future automated releases before enabling a publishing workflow; do not store npm write tokens in the repository.
+- [ ] Use the manual [Release workflow](distribution.md#publish-a-new-version) with the final native acceptance report. Verify npm provenance and integrity after publication; do not store npm write tokens in the repository. A local authenticated publish does not generate GitHub Actions provenance.
 - [ ] If publishing to the public OpenAI directory, complete [publisher verification and submission review](https://developers.openai.com/plugins/deploy/submission). A GitHub marketplace release is available independently of that listing.
 
 ## Support and recovery

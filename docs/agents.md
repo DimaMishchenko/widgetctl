@@ -18,7 +18,7 @@ widgetctl --help
 
 The global install provides the CLI. TypeScript and Playwright projects still need their own `widgetctl` dependency so imports resolve.
 
-For repeatable automation, install `widgetctl@0.1.0` and keep your lockfile.
+For repeatable automation, install `widgetctl@0.1.1` and keep your lockfile.
 
 ## 2. Install the skill through your agent
 
@@ -38,7 +38,7 @@ On Codex CLI versions exposing `codex plugin add`, you can instead install with:
 codex plugin add widgetctl@widgetctl
 ```
 
-Check `codex plugin --help` if your client differs. For the reproducible 0.1.0 plugin source, use `codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.0`. Register a local checkout with `codex plugin marketplace add /absolute/path/to/widgetctl` when testing unpublished changes.
+Check `codex plugin --help` if your client differs. For the reproducible 0.1.1 plugin source, use `codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.1`. Register a local checkout with `codex plugin marketplace add /absolute/path/to/widgetctl` when testing unpublished changes.
 
 ### Claude Code
 

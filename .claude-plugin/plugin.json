@@ -1,6 +1,6 @@
 {
   "name": "widgetctl",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Set up iOS Simulator Home Screen widgets with the local widgetctl CLI and API.",
   "author": {
     "name": "Dima Mishchenko"
@@ -8,5 +8,10 @@
   "homepage": "https://github.com/DimaMishchenko/widgetctl",
   "repository": "https://github.com/DimaMishchenko/widgetctl",
   "license": "MIT",
-  "keywords": ["ios", "simulator", "widgets", "testing"]
+  "keywords": [
+    "ios",
+    "simulator",
+    "widgets",
+    "testing"
+  ]
 }

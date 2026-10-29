@@ -1,6 +1,6 @@
 {
   "name": "widgetctl",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Programmatic iOS Simulator widget setup for tests",
   "type": "module",
   "license": "MIT",

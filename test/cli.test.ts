@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, symlinkSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -88,7 +88,10 @@ function setup(overrides: Partial<CliRuntime> = {}) {
 test("CLI help and version do not connect to a simulator", () => {
   assert.equal(invoke("--help").status, 0);
   assert.match(invoke("--help").stdout, /devices[\s\S]*configure/);
-  assert.equal(invoke("--version").stdout.trim(), "0.1.0");
+  const manifest = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  assert.equal(invoke("--version").stdout.trim(), manifest.version);
   assert.equal(invoke().status, 0);
 });
 test("JSON invalid input is stable and does not contain ANSI output", async () => {

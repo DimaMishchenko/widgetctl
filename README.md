@@ -31,7 +31,7 @@ npm install --global widgetctl
 widgetctl
 ```
 
-For reproducible installs, use `widgetctl@0.1.0` and keep your lockfile. [Distribution and releases →](docs/distribution.md)
+For reproducible installs, use `widgetctl@0.1.1` and keep your lockfile. [Distribution and releases →](docs/distribution.md)
 
 ## Agent skill and plugins
 
@@ -120,4 +120,4 @@ Experimental; uses Apple private APIs. Live coverage includes arm64 iPhone simul
 
 Reserve one simulator per worker. Preparation and release may restart its Home Screen. Always release in `finally`, and connect native UI drivers after preparation.
 
-[Usage](docs/usage.md) · [Examples](examples/README.md) · [Troubleshooting](docs/errors.md) · [Compatibility](docs/compatibility.md) · [Performance](docs/performance.md) · [Contributing](CONTRIBUTING.md)
+[Usage](docs/usage.md) · [Examples](examples/README.md) · [Troubleshooting](docs/errors.md) · [Compatibility](docs/compatibility.md) · [Performance](docs/performance.md) · [Releases](docs/distribution.md#publish-a-new-version) · [Privacy](docs/privacy.md) · [Contributing](CONTRIBUTING.md)

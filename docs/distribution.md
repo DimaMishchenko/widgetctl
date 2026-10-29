@@ -15,38 +15,42 @@ Choose a project or global CLI install. TypeScript and Playwright imports requir
 
 Plugins and standalone skills supply instructions, not the CLI or a remote simulator service. Choose one skill installation route; plugin installation does not also require copying the skill. All execution needs a local Mac with Xcode and an explicitly reserved simulator.
 
-For reproducible 0.1.0 setup, install `widgetctl@0.1.0`, preserve the lockfile, and pin the Codex marketplace source:
+For reproducible 0.1.1 setup, install `widgetctl@0.1.1`, preserve the lockfile, and pin the Codex marketplace source:
 
 ```sh
-codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.0
+codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.1.1
 ```
 
-The public OpenAI plugin directory is **not yet published**. Repository marketplace installation is a separate channel. A public listing requires a verified publisher identity, package validation, submission and approval; follow the [submission guide](https://developers.openai.com/plugins/deploy/submission) and [desktop-only requirements](https://developers.openai.com/plugins/deploy/desktop-only). Do not claim cloud execution without a local Mac executor.
+The public OpenAI plugin directory is **not yet published**. A draft was uploaded on 2026-10-29, but the portal reports that it is not accepting more skills-only submissions. The 0.1.1 manifest supplies the requested support, privacy and license URLs; provider acceptance is still required. Repository marketplace installation is a separate channel. A public listing requires a verified publisher identity, package validation, submission and approval; follow the [submission guide](https://developers.openai.com/plugins/deploy/submission) and [desktop-only requirements](https://developers.openai.com/plugins/deploy/desktop-only). Do not claim cloud execution without a local Mac executor.
 
-## Maintainer release process
+## Publish a new version
 
-One repository, one version: keep `package.json`, `plugin.json` and the Claude compatibility manifest aligned. The root manifest uses [Agent Plugins 1.0 packaging](https://developers.openai.com/plugins/build/plugins); the Claude adapter points to the same skill.
+Use **Actions → Release → Run workflow** on `main`. The workflow defaults to a dry run. It tests Linux/macOS on Node 22.14/24, builds the npm tarball and plugin ZIP, and retains them as the `release-artifacts` download. Publishing uses npm's trusted publisher bound to this repository and `release.yml`; no npm write token is stored in GitHub.
 
-1. Choose the final clean commit and complete the [release checklist](release-checklist.md), including CI, packed-consumer imports/types and native rendered verification of the same tarball.
-2. Build both deliverables:
+1. Set the same version in `package.json`, both version entries in `package-lock.json`, `plugin.json` and `.claude-plugin/plugin.json`. Add `docs/releases/VERSION.md`, update documented version pins, then commit and push. Keep the source commit unchanged during release acceptance.
+2. Run **Release** with that version and **dry_run = true**. Download its `release-artifacts`. Install that exact tarball in a fresh project and run its included [fixture verification example](../examples/README.md#reproduce-the-native-acceptance-checks) on an owned simulator. Inspect the before/edited/restored screenshots for both apps and complete the [release checklist](release-checklist.md). The dry run alone does not establish native acceptance.
+3. Create a draft GitHub release named `vVERSION` targeting that exact commit. Upload an `acceptance.json` recording the inspected artifact. It must contain these fields:
 
-   ```sh
-   npm ci
-   npm test
-   npm run test:playwright
-   npm run test:examples
-   npm run format:check
-   npm pack
-   npm run pack:plugin
+   ```json
+   {
+     "version": "VERSION",
+     "commit": "FULL_40_CHARACTER_COMMIT_SHA",
+     "tarball": { "sha256": "SHA256_OF_THE_TESTED_TARBALL" },
+     "native": {
+       "status": "passed",
+       "rendered": "Describe the rendered checks and restoration you actually inspected."
+     }
+   }
    ```
 
-   Retain the npm tarball and `.local/release/widgetctl-plugin-VERSION.zip` with SHA-256 hashes. Inspect the plugin ZIP: only the skill, manifests, referenced icon assets and license belong in it, with `plugin.json` at the root.
+   Keep the full native proof and screenshots with the draft too. Obtain the tarball hash with `shasum -a 256 widgetctl-VERSION.tgz`. Do not mark an uninspected or failing run as passed.
+4. Run **Release** again with **dry_run = false** and `native_evidence_url` set to `https://github.com/DimaMishchenko/widgetctl/releases/download/vVERSION/acceptance.json`. Replace `VERSION` in every input. The workflow reads draft assets through GitHub authentication, verifies version, source commit and exact artifact hash, then publishes npm with provenance and the matching GitHub release. It waits for npm processing and compares public integrity before making the GitHub release public.
 
-3. Confirm npm publisher access and publish the reviewed tarball. Use an approved publishing route; configure [trusted publishing](https://docs.npmjs.com/trusted-publishers/) against the actual release workflow when available. Verify fresh registry installation, CLI execution, both imports and the actual provenance result. Local packing alone proves neither publishing permission nor provenance.
-4. Create the matching `vVERSION` tag and GitHub release from that commit. Attach the verified tarball, plugin ZIP, hashes and concise release notes with the supported Xcode/simulator matrix and private-API limitations.
-5. Verify marketplace installation from the matching tag and update version pins. Public-directory submission remains a separate process through the verified publisher’s account.
+A newer `main` commit, conflicting tag, existing npm version or mismatched native report stops publication. Keep final acceptance tied to the same commit. Existing tags are never moved, and published releases are never overwritten. Only the publish job receives OIDC and repository write permission. The registry may take several minutes to expose a newly accepted package.
 
-Keep releases maintainer-triggered until publishing identities and native acceptance are established. A later automated release workflow must gate publishing on version/tag agreement, successful final-commit CI, reviewed native evidence and a protected approval environment. Limit `id-token: write` to the publish job.
+If npm succeeds but propagation times out or the final GitHub step fails, **do not republish or bump the version**. Download the retained `release-artifacts`, compare `npm view widgetctl@VERSION dist.integrity` with that tarball's SHA-512 integrity, and confirm its version and commit against `acceptance.json`. Once they match, finish the existing draft with `gh release edit vVERSION --draft=false --latest --notes-file docs/releases/VERSION.md`. A normal rerun rejects an already published npm version to prevent ambiguous recovery. If integrity differs, stop and investigate instead of publishing the draft.
+
+The first `0.1.0` release used authenticated local npm publication and has no GitHub Actions provenance. Subsequent releases use this workflow. New npm trusted publisher configurations must complete their first successful publish within two days; see [npm's requirements](https://docs.npmjs.com/trusted-publishers/#trusted-publisher-configuration-expiry).
 
 ## Version and recovery policy
 
