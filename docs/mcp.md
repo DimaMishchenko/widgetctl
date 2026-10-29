@@ -74,4 +74,4 @@ Requests are serialized. Each controller operation prepares its helper and relea
 
 Preparation and release may restart that simulator's Home Screen. Use the TypeScript API or Playwright fixture to keep one prepared lifecycle across multiple operations with an attached native UI driver. One simulator must have only one owner at a time, including other CLI, MCP or API processes.
 
-MCP tools preserve unrelated widgets and do not offer broad replacement or exclusive removal flags. Configuration and local app data are returned to the MCP client under its permissions and privacy settings. See [privacy](privacy.md), [compatibility](compatibility.md) and [troubleshooting](errors.md).
+MCP tools preserve unrelated widgets and do not offer broad replacement or exclusive removal flags. Configuration and local app data are returned to the MCP client under its permissions and privacy settings. See [privacy](privacy.md), [runtime limits](../README.md#support) and [troubleshooting](errors.md).

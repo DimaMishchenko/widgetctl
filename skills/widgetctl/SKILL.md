@@ -49,4 +49,4 @@ try {
 - Inspect JSON `code`, `recovery` and current saved state after errors. A failed or timed-out write may already have completed; do not blindly resubmit it. Report unsupported runtime/configuration results as such.
 - Verify saved readback and rendered app-specific content separately. Keep requested persistent changes. For temporary test setup, remove only test-created exact icons and restore test-edited values during cleanup.
 
-For API signatures, Playwright fixture wiring and configuration limits, read the installed package's `docs/usage.md` and `examples/`, or the [upstream usage guide](https://github.com/DimaMishchenko/widgetctl/blob/main/docs/usage.md) matching the installed revision.
+Use the bundled CLI's `--help` or MCP `tools/list` for exact arguments. For API signatures, Playwright wiring and runnable examples, install the project's `widgetctl` dependency and read its `docs/usage.md` and `examples/`; those files match the installed version.

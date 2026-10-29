@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -185,7 +186,12 @@ test("MCP help, version and unknown arguments exit without simulator access", as
   const version = await run(process.execPath, ["dist/mcp.js", "--version"], {
     env: { PATH: "" },
   });
-  assert.equal(version.stdout.trim(), "0.2.0");
+  assert.equal(
+    version.stdout.trim(),
+    JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ).version,
+  );
   await assert.rejects(
     run(process.execPath, ["dist/mcp.js", "--device", udid], {
       env: { PATH: "" },

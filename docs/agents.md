@@ -1,73 +1,56 @@
-# Use widgetctl with an agent
+# Agent setup
 
-Widgetctl runs on a local Mac with Node 22.14+, full Xcode and an iOS Simulator. The plugin bundles a local MCP server and CLI. Cloud-only sessions without a local Mac executor cannot run it.
+Run widgetctl on a local Mac with Node 22.14+, full Xcode and an iOS Simulator. Cloud-only sessions need a local Mac executor.
 
-## Install the plugin or skill
+Plugins bundle the skill, CLI, local MCP server, native worker and dependency licenses. No separate npm installation is needed for agent CLI use. They do not change your global PATH or add dependencies to your project. Standalone skill installs include both executables but require [separate MCP registration](mcp.md#connect).
 
-The plugin includes the skill, local MCP server, CLI, native worker and runtime dependencies. The standalone skill includes both executables, but its installer does not register the MCP server. No separate npm install is needed for agent CLI use. They require Node 22.14+ and Xcode already available on the Mac; they do not change your global PATH or install anything in your project.
-
-### Codex
-
-Register this repository as a marketplace:
+## Codex
 
 ```sh
 codex plugin marketplace add DimaMishchenko/widgetctl
 ```
 
-In the desktop app, open **Plugins**, choose the **widgetctl** marketplace and install **widgetctl**. Start a new session so the skill is available. This uses OpenAI’s documented [repository marketplace format](https://developers.openai.com/plugins/build/plugins).
+In the desktop app, open **Plugins**, select the **widgetctl** marketplace and install **widgetctl**. Start a new session to load the skill. This uses the documented [repository marketplace format](https://developers.openai.com/plugins/build/plugins).
 
-On Codex CLI versions exposing `codex plugin add`, you can instead install with:
+Pin a release with `codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.2.1`; use an absolute checkout path instead of the repository name to test local changes.
 
-```sh
-codex plugin add widgetctl@widgetctl
-```
-
-Check `codex plugin --help` if your client differs. For the reproducible 0.2.0 plugin source, use `codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.2.0`. Register a local checkout with `codex plugin marketplace add /absolute/path/to/widgetctl` when testing unpublished changes.
-
-### Claude Code
-
-In Claude Code, run:
+## Claude Code
 
 ```text
 /plugin marketplace add DimaMishchenko/widgetctl
 /plugin install widgetctl@widgetctl
 ```
 
-The [Claude adapter](https://code.claude.com/docs/en/plugins-reference) discovers the same `skills/widgetctl` directory. Its `.mcp.json` registers the bundled local MCP server. Manifest structure is validated against the documented format; end-to-end Claude installation still needs a test on a machine with Claude Code installed.
+The [Claude adapter](https://code.claude.com/docs/en/plugins-reference) uses the same skill and bundled MCP server. Its manifests are checked locally; a clean Claude Code installation on a Mac with Xcode still needs verification.
 
-### Standalone skill
+## Standalone skill
 
-The optional [skills CLI](https://github.com/vercel-labs/skills) (Node 22.20+) can install the skill directly from this public repository:
+The [skills CLI](https://github.com/vercel-labs/skills) requires Node 22.20+:
 
 ```sh
-npx skills add DimaMishchenko/widgetctl
+npx skills add DimaMishchenko/widgetctl --skill widgetctl
 ```
 
-This copies the same skill and bundled CLI. It is an alternative to plugin installation.
+The skill also has a public [Tessl listing](https://tessl.io/registry/skills/github/DimaMishchenko/widgetctl/widgetctl). Tessl installs the complete skill and runtime bundle from GitHub:
 
-For an agent that supports local `SKILL.md` skills, copy `skills/widgetctl` from a reviewed checkout into that agent’s documented skill location. For a Codex project, use `.agents/skills/widgetctl`. Keep the complete skill directory, including `scripts/`, `native/` and licenses. Copying the entire repository is unnecessary. This is an alternative to plugin installation, not an additional requirement.
+```sh
+npx tessl i github:DimaMishchenko/widgetctl --skill widgetctl
+```
 
-## Ask for a widget setup
+For manual installation, copy the complete `skills/widgetctl` directory into your agent's documented skill location (`.agents/skills/widgetctl` for a Codex project). Keep `scripts/`, `native/`, `package.json` and licenses together. Choose one installation route.
+
+## Use it
 
 ```text
-Use the widgetctl skill to find my Weather app's widgets on the simulator
-reserved for this task. Add a medium Forecast widget, inspect its settings,
-and verify the saved configuration. Use my native UI driver to check rendering.
+Use the widgetctl skill on the simulator reserved for this task. Find my
+Weather app's widgets, add a medium Forecast widget, inspect its settings,
+and verify saved configuration. Use my native UI driver to check rendering.
 ```
 
-The agent should discover IDs and supported sizes, use `--json` for CLI operations, and preserve the complete configuration envelope. It must target your explicitly reserved simulator, use exact widget identities, and release its helper even if preparation fails. The [skill](../skills/widgetctl/SKILL.md) explains these decisions in a short, portable form.
+The [skill](../skills/widgetctl/SKILL.md) instructs agents to discover real identifiers, target an explicitly owned UDID, preserve complete configuration, and release helpers after failures. MCP tools and explicit JSON CLI commands prepare and release per operation. Use TypeScript or Playwright for a persistent helper while a native UI driver is connected.
 
-Prefer the registered MCP tools for individual operations, or use the CLI with `--json`. Both prepare and release per operation and may restart the Home Screen. Use the TypeScript API or Playwright fixture when a native driver must remain connected across several operations. [MCP setup and tool reference →](mcp.md)
+MCP tools can return private app configuration to the agent. The client controls permissions and data handling; see [privacy](privacy.md). There is no remote server, widgetctl account or credential.
 
-## What the plugin contains
+Human CLI use is available through `npm install --global widgetctl`. TypeScript imports need `npm install --save-dev widgetctl`; Playwright also needs `@playwright/test`. Bundled agent executables do not add these project dependencies.
 
-- One short skill with automatic discovery and an explicit invocation prompt.
-- Bundled CLI and MCP executables, native worker and dependency license notices.
-- OpenAI Agent Plugins 1.0 metadata and a repository marketplace.
-- A Claude Code compatibility manifest and marketplace pointing to the same skill.
-
-There are no remote servers, lifecycle hooks, global installers or widgetctl credentials. MCP clients control permission to call the local tools. Installing a skill grants no new shell access; the agent still uses its host’s normal execution permissions.
-
-For a human terminal command, optionally install `npm install --global widgetctl` and run `widgetctl`. TypeScript and Playwright imports require a project dependency: `npm install --save-dev widgetctl`, or `npm install --save-dev widgetctl @playwright/test` for the fixture. The bundled CLI does not add an npm dependency to your project.
-
-The package schema and install manifests are checked locally. Marketplace discovery/installation support varies by client version. Public OpenAI directory approval is a separate release step; this repository does not claim an approved public listing. See [distribution and releases](distribution.md).
+GitHub marketplace installs work independently of public directory approval. See [distribution status](distribution.md#directories).

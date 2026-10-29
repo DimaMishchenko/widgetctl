@@ -166,4 +166,4 @@ The API rejects with `WidgetctlError`; inspect its message and optional full `re
 
 Live verification covers two fixture apps on arm64 iPhone simulators with iOS 26.0, 27.0 and Duo 27.1, using Xcode 27.1. Other runtimes, Intel and iPad are unverified. Individual Home Screen widgets are supported; stacks, Lock Screen widgets and physical devices are outside scope.
 
-For independently developed app outcomes, see [compatibility](compatibility.md). To reproduce cold/warm setup, discovery, query and save timings, see [performance](performance.md).
+For independent-app checks and performance measurements, see [contributing](../CONTRIBUTING.md).

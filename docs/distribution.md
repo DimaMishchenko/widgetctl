@@ -1,67 +1,41 @@
-# Distribution
+# Distribution and releases
 
-The README is the product’s home. Keep guides, examples, screenshots and install instructions in this repository.
+## Install channels
 
-## Channels
+| Use | Install |
+| --- | --- |
+| Project CLI and TypeScript API | `npm install --save-dev widgetctl` |
+| Global CLI and MCP executable | `npm install --global widgetctl` |
+| Playwright fixture | `npm install --save-dev widgetctl @playwright/test` |
+| Codex / Claude Code plugin or standalone skill | [Agent setup](agents.md) |
 
-| Artifact                                     | Install route                                                            |
-| -------------------------------------------- | ------------------------------------------------------------------------ |
-| Library, CLI and optional Playwright fixture | `npm install --save-dev widgetctl`                                       |
-| Standalone CLI                               | `npm install --global widgetctl`                                         |
-| Codex or Claude Code plugin                  | This repository’s marketplaces; see [agent setup](agents.md)             |
-| Standalone skill                             | Copy `skills/widgetctl` or use `npx skills add DimaMishchenko/widgetctl` |
+`widgetctl/playwright` is a package import, not a separate npm dependency. Plugins and standalone skills include the runtime; they do not add project dependencies. For reproducibility, pin `widgetctl@0.2.1`, retain your lockfile, and pin plugin sources to `v0.2.1`.
 
-Choose a project or global CLI install. TypeScript and Playwright imports require a project dependency. `widgetctl/playwright` is an import subpath of `widgetctl`; install `widgetctl @playwright/test` in a Playwright project.
+## Directories
 
-Plugins include the skill, CLI and local MCP server, native worker and bundled dependencies. Standalone skill installs copy both executables but do not register MCP. Choose one skill installation route; no extra npm CLI install is required. Node 22.14+ and Xcode must be present on the Mac. The bundle does not change global PATH or install a project dependency. TypeScript and Playwright imports still need a project dependency.
+Keep one canonical skill and runtime. Directory publication is separate from npm and GitHub releases.
 
-For reproducible 0.2.0 setup, install `widgetctl@0.2.0`, preserve the lockfile, and pin the Codex marketplace source:
+| Directory | Status and next action |
+| --- | --- |
+| [Tessl](https://tessl.io/registry/skills/github/DimaMishchenko/widgetctl/widgetctl) | Public listing; installation is documented in [agent setup](agents.md#standalone-skill). Update through the GitHub source route. |
+| OpenAI | Blocked on local-MCP submission allowlisting. Ask OpenAI Support to route the verified publisher's organization ID to the partner submission team. |
+| Anthropic | Directory submission skipped without an eligible paid publisher account. The GitHub marketplace adapter remains available. |
+| [skills.sh](https://skills.sh/docs/faq) | Discovery follows real skill installs. No confirmed listing; do not manufacture telemetry or install counts. |
+| [SkillsMP](https://skillsmp.com/about) | Independently indexes GitHub skills; indexing is unconfirmed. Its published contact route can be used for discovery questions. |
 
-```sh
-codex plugin marketplace add DimaMishchenko/widgetctl --ref v0.2.0
-```
+For OpenAI, publisher verification does not enable local MCP submission. After allowlisting, follow the [desktop-only submission guide](https://developers.openai.com/plugins/deploy/desktop-only) with a **new initial package** containing root `mcp.json`. An existing skills-only submission cannot currently be converted to MCP. Upload the tested plugin ZIP and complete review. Repository marketplace installation does not require directory approval.
 
-## Directory submissions
-
-Keep one canonical skill and bundled runtime. Different directories need metadata or account access, not separate implementations. None of the public listings below is claimed as approved.
-
-| Channel | What to submit | Publisher action |
-| --- | --- | --- |
-| OpenAI directory | Release plugin ZIP with skill, CLI and local MCP | Request local-MCP allowlisting for the submitting organization; then create a new initial MCP package draft and submit for review. |
-| Anthropic directory | Public GitHub plugin with skill, CLI and MCP | Submit through [claude.ai/directory/manage](https://claude.ai/directory/manage) using an eligible paid account. |
-| skills.sh | Public `skills/widgetctl` folder, including its bundled CLI | No submission form; real `npx skills add DimaMishchenko/widgetctl --skill widgetctl` installs with telemetry make it discoverable. |
-| SkillsMP | Public GitHub skill folder | Check indexing; if missing, request discovery through the site's published contact route. |
-| Tessl | Complete skill folder and generated Tessl metadata | Sign in, choose a workspace, import the skill, dry-run checks, then publish publicly. |
-
-**OpenAI:** verified publisher identity alone does not enable local MCP submissions. Find your organization ID in Platform settings, send it to your OpenAI representative and ask for local-MCP submission allowlisting. If you have no OpenAI representative, ask OpenAI Support how to reach the partner submission team; the documentation offers no public self-service allowlist form or guarantee of acceptance. Wait for confirmation. The [desktop-only guide](https://developers.openai.com/plugins/deploy/desktop-only) describes uploading the ZIP through **Create plugin → Skills only**, with root `mcp.json` included. Adding MCP to an existing skills-only submission is currently unsupported, so use a new initial package rather than converting the earlier blocked draft. Complete review and publish after approval. The existing skills-only draft remains unpublished. Repository marketplace installs work independently of directory approval.
-
-**Anthropic (optional):** a paid publisher account is needed for directory submission, not to keep the compatible GitHub marketplace package. Without one, skip the directory and retain the adapter so existing Claude users can install from GitHub. To submit later, run `claude plugin validate . --strict`, then test a clean marketplace installation on a Mac with Xcode. The [publishing guide](https://code.claude.com/docs/en/plugins/publish) links to the portal and paid-account requirements. Pro/Max can submit for their own account; Team/Enterprise require the appropriate owner or directory permission. Local simulator execution requires a compatible local Mac host; do not advertise cloud execution. Anthropic's directory and its `claude-plugins-official` marketplace have separate submission routes.
-
-**skills.sh / SkillsMP:** the [skills.sh FAQ](https://skills.sh/docs/faq) explains automatic discovery from installations. Do not manufacture counts or treat telemetry-disabled QA installs as listing proof. [SkillsMP](https://skillsmp.com/about) independently indexes public GitHub skills and publishes `support@skillsmp.com` for discovery questions. Neither index approval nor a manual SkillsMP submission has been confirmed. Install the whole skill folder so the CLI and native worker remain available.
-
-**Tessl:** after installing the [Tessl CLI](https://docs.tessl.io/reference/cli-commands), work from a copy of the complete skill folder so generated metadata does not alter the canonical package:
-
-```sh
-tessl login
-cp -R skills/widgetctl /tmp/widgetctl-tessl
-cd /tmp/widgetctl-tessl
-tessl skill import --workspace YOUR_WORKSPACE --public .
-tessl skill lint .
-tessl skill publish --dry-run .
-tessl skill publish .
-```
-
-Use a new staging folder if `/tmp/widgetctl-tessl` already exists. Replace `YOUR_WORKSPACE` with a workspace you own. The current CLI creates `.tessl-plugin/plugin.json`; review its name, version and visibility before publication. Check that the packed skill retains `scripts/`, `native/` and licenses. This publishes the skill and bundled CLI; MCP registration is a separate client setup. No Tessl listing is claimed until authenticated publication succeeds.
-
-See [agent installation](agents.md) and [local MCP setup](mcp.md). Additional directory review and account steps remain manual; the GitHub release workflow publishes npm and release artifacts.
+Anthropic submission can be revisited through its [publishing guide](https://code.claude.com/docs/en/plugins/publish). First validate the adapter with `claude plugin validate . --strict` and test a clean installation on a local Mac with Xcode. Manifest validation alone does not prove client installation.
 
 ## Publish a new version
 
-Use **Actions → Release → Run workflow** on `main`. The workflow defaults to a dry run. It tests Linux/macOS on Node 22.14/24, builds the npm tarball and plugin ZIP, and retains them as the `release-artifacts` download. Publishing uses npm's trusted publisher bound to this repository and `release.yml`; no npm write token is stored in GitHub.
+Use **Actions → Release → Run workflow** on `main`. Keep the source commit unchanged through final acceptance. The workflow tests Linux/macOS on Node 22.14/24, builds npm and plugin artifacts, and uses npm trusted publishing with provenance. No npm write token is stored in GitHub.
 
-1. Keep the same version in `package.json`, both version entries in `package-lock.json`, `plugin.json` and `.claude-plugin/plugin.json`. Add `docs/releases/VERSION.md`, update documented version pins, then commit and push. Run `npm run build:plugin` after CLI, MCP, native source, dependency or version changes and commit its generated skill resources. `npm test` rejects stale bundles. Keep the source commit unchanged during release acceptance.
-2. Run **Release** with that version and **dry_run = true**. Download its `release-artifacts`. Install that exact tarball in a fresh project and run its included [fixture verification example](../examples/README.md#reproduce-the-native-acceptance-checks) on an owned simulator. Inspect the before/edited/restored screenshots for both apps and complete the [release checklist](release-checklist.md). The dry run alone does not establish native acceptance.
-3. Create a draft GitHub release named `vVERSION` targeting that exact commit. Upload an `acceptance.json` recording the inspected artifact. It must contain these fields:
+1. Align `package.json`, both version entries in `package-lock.json`, `plugin.json` and `.claude-plugin/plugin.json`. Add `docs/releases/VERSION.md` and update documentation pins. Run `npm run build:plugin` after CLI, MCP, native source, dependency or version changes and include the generated skill resources. Independently review changes and release notes, then merge through the required PR checks.
+2. Run **Release** for that version with **dry_run = true**. Download `release-artifacts`. Record the exact commit and checksums. Inspect the package file list and production dependency audit. The plugin ZIP must retain its icons, complete skill/runtime, both MCP configurations and licenses.
+3. Install the exact tarball in a fresh project. Check CLI help, core ESM imports without Playwright, strict TypeScript types, the optional Playwright import and an isolated global CLI install. Test the extracted plugin through an isolated client; manifest validation alone is insufficient.
+4. Run the included [fixture acceptance example](../examples/README.md#reproduce-the-native-acceptance-checks) on an owned simulator with both signed fixture apps. Inspect before/edited/restored screenshots, native choices, stale guards and exact readback. Exercise add/edit/restore/remove through both installed MCP servers (npm and extracted plugin), and check clean shutdown. Confirm cleanup after setup failures and preservation of unrelated widget identities. Record Xcode, runtime/build and architecture; report unsupported outcomes honestly.
+5. Create a draft GitHub release named `vVERSION` targeting the exact tested commit. Attach native proof/screenshots and an `acceptance.json` with the following fields. Obtain the hash with `shasum -a 256 widgetctl-VERSION.tgz`.
 
    ```json
    {
@@ -70,28 +44,27 @@ Use **Actions → Release → Run workflow** on `main`. The workflow defaults to
      "tarball": { "sha256": "SHA256_OF_THE_TESTED_TARBALL" },
      "native": {
        "status": "passed",
-       "rendered": "Describe the rendered checks and restoration you actually inspected."
+       "rendered": "Describe the rendered checks and restoration actually inspected."
      }
    }
    ```
 
-   Keep the full native proof and screenshots with the draft too. Obtain the tarball hash with `shasum -a 256 widgetctl-VERSION.tgz`. Do not mark an uninspected or failing run as passed.
-4. Run **Release** again with **dry_run = false** and `native_evidence_url` set to `https://github.com/DimaMishchenko/widgetctl/releases/download/vVERSION/acceptance.json`. Replace `VERSION` in every input. The workflow reads draft assets through GitHub authentication, verifies version, source commit and exact artifact hash, then publishes npm with provenance and the matching GitHub release. It waits for npm processing and compares public integrity before making the GitHub release public.
+6. Run **Release** with **dry_run = false** and `native_evidence_url` set to `https://github.com/DimaMishchenko/widgetctl/releases/download/vVERSION/acceptance.json`. The workflow reads draft assets with GitHub authentication, verifies version/commit/artifact hash, creates the immutable tag, publishes npm, compares public integrity, and makes the GitHub release public. A dry run or successful compilation alone does not establish native acceptance.
 
-A newer `main` commit, conflicting tag, existing npm version or mismatched native report stops publication. Keep final acceptance tied to the same commit. Existing tags are never moved, and published releases are never overwritten. Only the publish job receives OIDC and repository write permission. The registry may take several minutes to expose a newly accepted package.
+A newer `main` commit, conflicting tag, existing npm version or mismatched acceptance report stops publication. Published tags and releases are never overwritten. The registry may take several minutes to expose the package. After publication, install `widgetctl@VERSION` from npm in a fresh project and verify CLI help, both imports, integrity and provenance. Test marketplace installation pinned to the new release tag.
 
-If npm succeeds but propagation times out or the final GitHub step fails, **do not republish or bump the version**. Download the retained `release-artifacts`, compare `npm view widgetctl@VERSION dist.integrity` with that tarball's SHA-512 integrity, and confirm its version and commit against `acceptance.json`. Once they match, finish the existing draft with `gh release edit vVERSION --draft=false --latest --notes-file docs/releases/VERSION.md`. A normal rerun rejects an already published npm version to prevent ambiguous recovery. If integrity differs, stop and investigate instead of publishing the draft.
+### Interrupted publication
 
-The first `0.1.0` release used authenticated local npm publication and has no GitHub Actions provenance. Subsequent releases use this workflow. New npm trusted publisher configurations must complete their first successful publish within two days; see [npm's requirements](https://docs.npmjs.com/trusted-publishers/#trusted-publisher-configuration-expiry).
+If npm succeeds but propagation or the final GitHub step fails, **do not republish or bump the version**. Download the retained artifacts. Compare `npm view widgetctl@VERSION dist.integrity` with the tested tarball's SHA-512 integrity and confirm its version/commit against `acceptance.json`. If they match, finish the existing draft:
 
-## Version and recovery policy
+```sh
+gh release edit vVERSION --draft=false --latest --notes-file docs/releases/VERSION.md
+```
 
-Before 1.0, preserve API/CLI behavior within each `0.x` minor version; document breaking changes in a minor release. Keep plugin versions aligned with the CLI they were tested against, and document mismatches rather than silently downloading another version.
+A normal rerun rejects an existing npm version. If integrity differs, investigate before publishing the draft. The first `0.1.0` release used local authenticated npm publication without Actions provenance; subsequent releases use the workflow. New trusted publisher configurations must publish successfully within two days; see [npm's requirements](https://docs.npmjs.com/trusted-publishers/#trusted-publisher-configuration-expiry).
 
-For a bad release, stop rollout, document affected versions and publish a fixed patch. If needed, deprecate the affected npm version and move the registry tag to the last verified version. Update the plugin marketplace to a known-good version. Avoid rewriting published Git tags. Plugin uninstall and npm uninstall are separate operations.
+## Compatibility and recovery policy
 
-## Demo maintenance
+Before 1.0, preserve API/CLI behavior within each `0.x` minor and document breaking changes in a minor release. Keep plugin versions aligned with their tested CLI. Runtime coverage and unsupported platforms are listed in [README Support](../README.md#support).
 
-The README GIF shows the recorded CLI beside an entire, uncropped simulator screen. `scripts/render-demo.py` requires a terminal recording plus four full-screen captures: `--empty-simulator empty.png --added-simulator added.png --edited-simulator edited.png --removed-simulator removed.png`. Crop/detail-only modes are intentionally unsupported. The current GIF shows Add → Edit → Remove in 19.2 seconds, with a hard 30-second playback limit in the renderer. Simulator state changes only after each successful action; draft edits and removal confirmation keep the previous screenshot. The montage uses real CLI output and simulator captures with pauses trimmed for playback; no additional labels are drawn around the two panels.
-
-Re-record on a disposable simulator when the interface changes. Preserve source recordings and captures as release evidence, inspect key frames, and keep the GIF below 2 MB when possible. Rendering requires Python with Pillow and macOS system fonts; Pillow is not a widgetctl runtime dependency.
+For a bad release, stop rollout and publish a fixed patch. Deprecate affected npm versions or move the registry tag to the last verified version when needed; update marketplace sources accordingly. Keep published Git tags immutable. Plugin uninstall and npm uninstall are separate operations.

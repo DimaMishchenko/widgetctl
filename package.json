@@ -1,6 +1,6 @@
 {
   "name": "widgetctl",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Programmatic iOS Simulator widget setup for tests",
   "type": "module",
   "license": "MIT",
@@ -58,7 +58,11 @@
     "build:plugin": "node --import tsx scripts/build-plugin.ts"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.7.5",
+    "@inquirer/confirm": "^6.3.5",
+    "@inquirer/editor": "^5.3.6",
+    "@inquirer/input": "^5.1.9",
+    "@inquirer/search": "^4.3.6",
+    "@inquirer/select": "^5.2.8",
     "@modelcontextprotocol/server": "^2.4.0",
     "bplist-parser": "^0.3.2",
     "plist": "^3.1.0",

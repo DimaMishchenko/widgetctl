@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "widgetctl",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Set up iOS Simulator Home Screen widgets with a local MCP server, CLI and API.",
   "author": {
     "name": "Dima Mishchenko"
@@ -9,12 +9,7 @@
   "homepage": "https://github.com/DimaMishchenko/widgetctl",
   "repository": "https://github.com/DimaMishchenko/widgetctl",
   "license": "MIT",
-  "keywords": [
-    "ios",
-    "simulator",
-    "widgets",
-    "testing"
-  ],
+  "keywords": ["ios", "simulator", "widgets", "testing"],
   "extensions": {
     "com.openai": {
       "interface": {
