@@ -9,7 +9,7 @@ Use this checklist for every version. Record results, exact commit, artifact has
 - [ ] Review changes and release notes independently, including support limits and cleanup behavior.
 - [ ] From a clean checkout, run `npm ci`, `npm test`, `npm run test:playwright`, `npm run test:examples`, `npm run test:performance` and `npm run format:check`.
 - [ ] Require green final-commit Linux/macOS CI on Node 22.14 and 24. Native compilation alone does not establish live support.
-- [ ] Inspect the production dependency audit and package file list. Build `npm pack` and `npm run pack:plugin`; retain SHA-256 checksums. The plugin ZIP must include its referenced icons, skill, manifests and license, without the CLI or local evidence.
+- [ ] Inspect the production dependency audit and package file list. Build `npm pack` and `npm run pack:plugin`; retain SHA-256 checksums. The plugin ZIP must include its referenced icons, complete skill directory, bundled CLI, native worker and dependency licenses, without local evidence or development dependencies.
 
 ## Test the final tarball
 

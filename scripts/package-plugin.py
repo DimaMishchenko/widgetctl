@@ -1,11 +1,13 @@
 import argparse
 import hashlib
 import json
+import subprocess
 import zipfile
 from pathlib import Path
 
 
 def package_plugin(root, output):
+    subprocess.run(["node", "--import", "tsx", "scripts/build-plugin.ts", "--check"], cwd=root, check=True, stdout=subprocess.DEVNULL)
     manifest_paths = ["plugin.json", ".claude-plugin/plugin.json"]
     version = json.loads((root / "package.json").read_text())["version"]
     for name in manifest_paths:
@@ -18,11 +20,15 @@ def package_plugin(root, output):
         "LICENSE",
         "assets/plugin-icon.svg",
     ]
-    skill_root = root / "skills"
+    skill_root = root / "skills/widgetctl"
+    maintained = {"SKILL.md", "agents/openai.yaml", "package.json", "scripts/widgetctl.mjs", "native/worker.m"}
     for path in sorted(skill_root.rglob("*")):
+        relative = path.relative_to(skill_root)
+        if any(part.startswith(".") or part in {"node_modules", "__pycache__"} for part in relative.parts):
+            continue
         if path.is_symlink():
             raise ValueError(f"Plugin resources cannot be symlinks: {path}")
-        if path.is_file():
+        if path.is_file() and (relative.as_posix() in maintained or relative.parts[0] == "licenses"):
             files.append(path.relative_to(root).as_posix())
     if "skills/widgetctl/SKILL.md" not in files:
         raise ValueError("The widgetctl skill is missing")

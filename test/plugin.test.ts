@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { readFile, mkdtemp, rm, mkdir, writeFile, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { pluginRuntime } from "../scripts/build-plugin.js";
 const execute = promisify(execFile);
 const root = new URL("..", import.meta.url);
 const json = async (file: string) =>
@@ -39,7 +40,7 @@ test("plugin identities and desktop requirement agree across install channels", 
   assert.equal(codexMarket.plugins[0].policy.installation, "AVAILABLE");
 });
 
-test("plugin ZIP is reproducible, self-contained and excludes the CLI and local evidence", async () => {
+test("plugin ZIP is reproducible and includes the standalone runtime without development files", async () => {
   const directory = await mkdtemp(join(tmpdir(), "widgetctl-plugin-"));
   try {
     const script = new URL("scripts/package-plugin.py", root).pathname;
@@ -58,6 +59,7 @@ test("plugin ZIP is reproducible, self-contained and excludes the CLI and local 
       archive,
     ]);
     const bundle = JSON.parse(inspected);
+    const runtime = await pluginRuntime();
     assert.deepEqual(
       bundle.files.sort(),
       [
@@ -69,8 +71,11 @@ test("plugin ZIP is reproducible, self-contained and excludes the CLI and local 
         "plugin.json",
         "skills/widgetctl/SKILL.md",
         "skills/widgetctl/agents/openai.yaml",
+        ...[...runtime.keys()].map((name) => `skills/widgetctl/${name}`),
       ].sort(),
     );
+    for (const name of bundle.files)
+      assert.ok(!/(node_modules|__pycache__|\.local|\.cache)/.test(name));
     assert.equal(
       bundle.skill,
       await readFile(new URL("skills/widgetctl/SKILL.md", root), "utf8"),
@@ -79,12 +84,95 @@ test("plugin ZIP is reproducible, self-contained and excludes the CLI and local 
       bundle.manifest.extensions["com.openai"].requires_local_executor,
       true,
     );
+    const extracted = join(directory, "extracted");
+    await execute("python3", [
+      "-c",
+      "import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])",
+      archive,
+      extracted,
+    ]);
+    const standalone = join(directory, "standalone-skill");
+    await cp(join(extracted, "skills/widgetctl"), standalone, {
+      recursive: true,
+    });
+    const pkg = await json("package.json");
+    for (const location of [join(extracted, "skills/widgetctl"), standalone]) {
+      const cli = join(location, "scripts/widgetctl.mjs");
+      const options = {
+        cwd: directory,
+        env: { ...process.env, NODE_PATH: "", NODE_OPTIONS: "" },
+        timeout: 30_000,
+      };
+      const version = await execute(
+        process.execPath,
+        [cli, "--version"],
+        options,
+      );
+      assert.equal(version.stdout.trim(), pkg.version);
+      const help = await execute(process.execPath, [cli, "--help"], options);
+      assert.match(help.stdout, /iOS Simulator widget testing helper/);
+      let diagnosis;
+      try {
+        diagnosis = await execute(
+          process.execPath,
+          [cli, "doctor", "--json"],
+          options,
+        );
+      } catch (error) {
+        const failure = error as {
+          code: number;
+          stdout: string;
+          stderr: string;
+        };
+        assert.equal(failure.code, 1);
+        diagnosis = failure;
+      }
+      const report = JSON.parse(diagnosis.stdout);
+      assert.equal(report.schemaVersion, 1);
+      assert.ok(Array.isArray(report.checks));
+      assert.doesNotMatch(
+        diagnosis.stderr,
+        /ERR_MODULE_NOT_FOUND|Cannot find module/,
+      );
+    }
     const { createHash } = await import("node:crypto");
     assert.ok(
       (await readFile(`${archive}.sha256`, "utf8")).startsWith(
         createHash("sha256").update(first).digest("hex"),
       ),
     );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("tracked plugin runtime matches a fresh deterministic build including licenses and native source", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "widgetctl-plugin-build-"));
+  try {
+    const expected = await pluginRuntime();
+    assert.ok(
+      [...expected.keys()].some(
+        (name) => name.includes("bplist-parser") && name.endsWith("LICENSE"),
+      ),
+    );
+    for (const [name, bytes] of expected) {
+      const generated = join(directory, name);
+      await mkdir(dirname(generated), { recursive: true });
+      await writeFile(generated, bytes);
+      assert.ok(
+        (await readFile(new URL(`skills/widgetctl/${name}`, root))).equals(
+          await readFile(generated),
+        ),
+        `Stale generated ${name}; run npm run build:plugin`,
+      );
+    }
+    const second = await pluginRuntime();
+    assert.deepEqual([...second.keys()], [...expected.keys()]);
+    for (const [name, bytes] of expected)
+      assert.ok(
+        Buffer.from(bytes).equals(Buffer.from(second.get(name)!)),
+        `Nondeterministic ${name}`,
+      );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

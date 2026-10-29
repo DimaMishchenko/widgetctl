@@ -9,22 +9,22 @@ Use widgetctl for deterministic widget setup, exact identities and saved configu
 
 ## Start
 
-Requires macOS, Node 22.14+, full Xcode and an installed widget app. Launch the containing app once before catalog discovery. The plugin supplies this skill, not the executable.
+Requires macOS, Node 22.14+, full Xcode and an installed widget app. Launch the containing app once before catalog discovery. The plugin and standalone skill include a self-contained CLI; no separate npm install is needed for agent CLI operations.
 
-For a project install use `npx widgetctl --help`; for a global install use `widgetctl --help`. If absent and setup is requested, run `npm install --save-dev widgetctl` and preserve the lockfile. Use `widgetctl@0.1.1` for a reproducible release install. A standalone global CLI install is also supported; TypeScript and Playwright imports need a project dependency. Run `npx widgetctl doctor --json` to check the host without changing it.
+Resolve this skill's directory and set `WIDGETCTL` to the absolute path of `scripts/widgetctl.mjs` inside it. Run `node "$WIDGETCTL" --help` and `node "$WIDGETCTL" doctor --json`. The bundled CLI requires Node 22.14+ but installs no packages and changes no global PATH. Use it for the commands below. For TypeScript or Playwright imports in a project, install `widgetctl` (and `@playwright/test` for the fixture) as project dev dependencies and preserve the lockfile.
 
 Reserve one simulator per worker and use its explicit, already booted UDID. Preparation and release can restart that simulator's Home Screen. Connect native UI drivers after preparation and close them before release. Never restart global simulator services or remove another owner's locks.
 
 ## Choose the interface
 
-For individual operations, use CLI commands with `--json` (no prompts). Examples below use the project-local CLI; use `widgetctl` instead of `npx widgetctl` after a global install. Discover actual values rather than guessing bundle IDs, kinds, sizes or widget identities:
+For individual operations, use CLI commands with `--json` (no prompts). Examples below use the bundled CLI. Discover actual values rather than guessing bundle IDs, kinds, sizes or widget identities:
 
 ```sh
-npx widgetctl devices --json
-npx widgetctl catalog --device "$SIMULATOR_UDID" --json
-npx widgetctl add --device "$SIMULATOR_UDID" \
+node "$WIDGETCTL" devices --json
+node "$WIDGETCTL" catalog --device "$SIMULATOR_UDID" --json
+node "$WIDGETCTL" add --device "$SIMULATOR_UDID" \
   --app "$APP_BUNDLE_ID" --kind "$WIDGET_KIND" --size medium --json
-npx widgetctl list --device "$SIMULATOR_UDID" --json
+node "$WIDGETCTL" list --device "$SIMULATOR_UDID" --json
 ```
 
 CLI operations prepare and release automatically. For repeated operations under one native driver connection, prefer the TypeScript lifecycle or the `widgetctl/playwright` fixture. Keep `prepare()` inside `try` so even setup failures release:

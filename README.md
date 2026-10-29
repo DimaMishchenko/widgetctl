@@ -35,6 +35,8 @@ For reproducible installs, use `widgetctl@0.1.1` and keep your lockfile. [Distri
 
 ## Agent skill and plugins
 
+The plugin includes the CLI. Agents can use it immediately without a separate npm installation.
+
 The short [widgetctl skill](skills/widgetctl/SKILL.md) teaches agents when to use the tool, JSON discovery, safe configuration edits and simulator ownership.
 
 Add this repository as a Codex marketplace:
@@ -43,7 +45,7 @@ Add this repository as a Codex marketplace:
 codex plugin marketplace add DimaMishchenko/widgetctl
 ```
 
-Then install **widgetctl** from that marketplace in the desktop Plugins directory. The plugin supplies instructions; install the CLI separately, either in your project or globally using the commands above. [Codex, Claude Code and skill-only setup →](docs/agents.md)
+Then install **widgetctl** from that marketplace in the desktop Plugins directory. The plugin includes the CLI and its dependencies. [Codex, Claude Code and standalone skill setup →](docs/agents.md)
 
 ## CLI
 

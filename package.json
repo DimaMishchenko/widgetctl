@@ -50,7 +50,8 @@
     "test:examples": "npm run build && tsc -p examples/tsconfig.json && bash -n examples/cli.sh",
     "benchmark": "node --import tsx scripts/benchmark.ts",
     "test:performance": "tsc -p scripts/tsconfig.json && node --import tsx --test test/performance.test.ts",
-    "pack:plugin": "python3 scripts/package-plugin.py"
+    "pack:plugin": "python3 scripts/package-plugin.py",
+    "build:plugin": "node --import tsx scripts/build-plugin.ts"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.5",
@@ -69,6 +70,7 @@
     "@playwright/test": "^1.56.0",
     "@types/node": "^22.19.0",
     "@types/plist": "^3.0.5",
+    "esbuild": "0.28.2",
     "prettier": "^3.9.9",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"

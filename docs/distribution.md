@@ -13,7 +13,7 @@ The README is the product’s home. Keep guides, examples, screenshots and insta
 
 Choose a project or global CLI install. TypeScript and Playwright imports require a project dependency. `widgetctl/playwright` is an import subpath of `widgetctl`; install `widgetctl @playwright/test` in a Playwright project.
 
-Plugins and standalone skills supply instructions, not the CLI or a remote simulator service. Choose one skill installation route; plugin installation does not also require copying the skill. All execution needs a local Mac with Xcode and an explicitly reserved simulator.
+Plugins and standalone skills include a ready-to-run CLI, native worker and bundled production dependencies. Choose one skill installation route; no extra npm CLI install is required. Node 22.14+ and Xcode must be present on the Mac. The bundle does not change global PATH or install a project dependency. TypeScript and Playwright imports still need a project dependency.
 
 For reproducible 0.1.1 setup, install `widgetctl@0.1.1`, preserve the lockfile, and pin the Codex marketplace source:
 
@@ -27,7 +27,7 @@ The public OpenAI plugin directory is **not yet published**. A draft was uploade
 
 Use **Actions → Release → Run workflow** on `main`. The workflow defaults to a dry run. It tests Linux/macOS on Node 22.14/24, builds the npm tarball and plugin ZIP, and retains them as the `release-artifacts` download. Publishing uses npm's trusted publisher bound to this repository and `release.yml`; no npm write token is stored in GitHub.
 
-1. Set the same version in `package.json`, both version entries in `package-lock.json`, `plugin.json` and `.claude-plugin/plugin.json`. Add `docs/releases/VERSION.md`, update documented version pins, then commit and push. Keep the source commit unchanged during release acceptance.
+1. Keep the same version in `package.json`, both version entries in `package-lock.json`, `plugin.json` and `.claude-plugin/plugin.json`. Add `docs/releases/VERSION.md`, update documented version pins, then commit and push. Run `npm run build:plugin` after CLI, native source, dependency or version changes and commit its generated skill resources. `npm test` rejects stale bundles. Keep the source commit unchanged during release acceptance.
 2. Run **Release** with that version and **dry_run = true**. Download its `release-artifacts`. Install that exact tarball in a fresh project and run its included [fixture verification example](../examples/README.md#reproduce-the-native-acceptance-checks) on an owned simulator. Inspect the before/edited/restored screenshots for both apps and complete the [release checklist](release-checklist.md). The dry run alone does not establish native acceptance.
 3. Create a draft GitHub release named `vVERSION` targeting that exact commit. Upload an `acceptance.json` recording the inspected artifact. It must contain these fields:
 
