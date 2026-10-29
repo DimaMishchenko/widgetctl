@@ -7,7 +7,7 @@ widgetctl manages individual Home Screen widgets on an explicitly owned iOS simu
 Use macOS, Node 22.14+, full Xcode, and an installed widget app. Launch the app once so its widget descriptors can register.
 
 ```sh
-npx --no-install widgetctl devices --json
+npx widgetctl devices --json
 ```
 
 Interactive mode shows simulator names, iOS versions and running state. Select a simulator reserved for your session. One confirmation covers booting it if needed and briefly restarting its Home Screen for the helper. Decline to return or press Ctrl-C to exit. Duplicate names gain a distinguishing suffix; routine menus omit UUIDs.
@@ -25,7 +25,7 @@ Skip `boot` if already booted. Reserve one simulator per worker. Locks serialize
 ## Guided terminal workflow
 
 ```sh
-npx --no-install widgetctl
+npx widgetctl
 ```
 
 The main menu offers **Add widget**, **Edit widget**, **Remove widget**, **More**, **Change simulator** and **Exit**. Under **More**, choose **Browse widgets**, **Installed widgets**, **Widget details**, **Import configuration**, **Export configuration** or **Diagnostics**.
@@ -58,10 +58,10 @@ Explicit CLI commands prepare and release automatically, including failed prepar
 Use `--json` for one JSON result on stdout, with `schemaVersion: 1`, `status`, and operation data or an `error`. Failures also include a stable `code`, human-readable `recovery` steps and `retryable`. Match codes, not English messages; a submitted mutation is never automatically retried. See [diagnostics and error codes](errors.md). JSON mode never prompts, even in a terminal. Without a terminal, missing required arguments fail with usage guidance. Plain terminal output is intended for humans.
 
 ```sh
-npx --no-install widgetctl catalog --device "$SIMULATOR_UDID" --json
-npx --no-install widgetctl add --device "$SIMULATOR_UDID" \
+npx widgetctl catalog --device "$SIMULATOR_UDID" --json
+npx widgetctl add --device "$SIMULATOR_UDID" \
   --app 'YOUR_APP_BUNDLE_ID' --kind 'YOUR_CATALOG_KIND' --size medium --json
-npx --no-install widgetctl list --device "$SIMULATOR_UDID" --json
+npx widgetctl list --device "$SIMULATOR_UDID" --json
 ```
 
 `catalog` groups descriptors under installed app names and bundle identifiers. Use `--extension` when an app has several extensions with the same kind. The requested app, extension, kind and size must resolve to exactly one descriptor. `add` reuses a matching widget or creates one; ambiguity fails instead of choosing an existing duplicate.
@@ -70,11 +70,11 @@ Capture `iconIdentifier` from `add` or `list`, then target that identity:
 
 ```sh
 export WIDGET_ICON='YOUR_EXACT_ICON_UUID'
-npx --no-install widgetctl export --device "$SIMULATOR_UDID" \
+npx widgetctl export --device "$SIMULATOR_UDID" \
   --widget "$WIDGET_ICON" --file widget.json --json
-npx --no-install widgetctl configure --device "$SIMULATOR_UDID" \
+npx widgetctl configure --device "$SIMULATOR_UDID" \
   --widget "$WIDGET_ICON" --file widget.json --json
-npx --no-install widgetctl remove --device "$SIMULATOR_UDID" \
+npx widgetctl remove --device "$SIMULATOR_UDID" \
   --widget "$WIDGET_ICON" --json
 ```
 

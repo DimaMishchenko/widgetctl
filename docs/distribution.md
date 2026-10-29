@@ -18,7 +18,7 @@ Install the library and CLI together:
 
 ```sh
 npm install --save-dev github:DimaMishchenko/widgetctl
-npx --no-install widgetctl --help
+npx widgetctl --help
 ```
 
 Pin a reviewed commit for CI. Add the agent plugin separately using [agent setup](agents.md). Do not advertise an npm installation command or public plugin-directory listing before those artifacts are actually published.
@@ -63,4 +63,4 @@ For a bad release, stop rollout, document the affected versions, and publish a f
 
 ## Demo maintenance
 
-The README GIF is trimmed and sped up from a real terminal session. `scripts/render-demo.py` replays that recording into the committed asset; it does not invent CLI output. Re-record the CLI on a disposable simulator when its interface changes. Preserve the recording as release evidence, inspect key frames, and keep the GIF small enough for a README. Rendering is a maintainer task requiring Python with Pillow and macOS system fonts; Pillow is not a widgetctl runtime dependency.
+The README GIF is trimmed and sped up from a real terminal session. `scripts/render-demo.py` pairs that recording with real simulator captures in the committed asset; it does not invent CLI output. Pass `--before-simulator before.png --after-simulator after.png` with the recording path. Use `--widget-crop LEFT TOP RIGHT BOTTOM` for a readable native widget close-up; `--after-widget-crop` supports separately captured layouts, and `--widget-detail-only` avoids implying that saving moved a widget. The widget retains its before image until the saved-success frame. Re-record the CLI on a disposable simulator when its interface changes. Preserve the recording as release evidence, inspect key frames, and keep the GIF small enough for a README. Rendering is a maintainer task requiring Python with Pillow and macOS system fonts; Pillow is not a widgetctl runtime dependency.

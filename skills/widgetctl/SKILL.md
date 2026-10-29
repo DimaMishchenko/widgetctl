@@ -11,20 +11,20 @@ Use widgetctl for deterministic widget setup, exact identities and saved configu
 
 Requires macOS, Node 22.14+, full Xcode and an installed widget app. Launch the containing app once before catalog discovery. The plugin supplies this skill, not the executable.
 
-Use the project's installed version: `npx --no-install widgetctl --help`. If absent and setup is requested, install as a project dev dependency from `github:DimaMishchenko/widgetctl#<reviewed-commit-sha>` and preserve the lockfile. Resolve the placeholder before running npm; prefer a project-local installation over a global one. Run `npx --no-install widgetctl doctor --json` to check the host without changing it.
+For a project install use `npx widgetctl --help`; for a global install use `widgetctl --help`. If absent and setup is requested, install as a project dev dependency from `github:DimaMishchenko/widgetctl#<reviewed-commit-sha>` and preserve the lockfile. Resolve the placeholder before running npm. A standalone global CLI install is also supported; TypeScript and Playwright imports need a project dependency. Run `npx widgetctl doctor --json` to check the host without changing it.
 
 Reserve one simulator per worker and use its explicit, already booted UDID. Preparation and release can restart that simulator's Home Screen. Connect native UI drivers after preparation and close them before release. Never restart global simulator services or remove another owner's locks.
 
 ## Choose the interface
 
-For individual operations, use CLI commands with `--json` (no prompts). Discover actual values rather than guessing bundle IDs, kinds, sizes or widget identities:
+For individual operations, use CLI commands with `--json` (no prompts). Examples below use the project-local CLI; use `widgetctl` instead of `npx widgetctl` after a global install. Discover actual values rather than guessing bundle IDs, kinds, sizes or widget identities:
 
 ```sh
-npx --no-install widgetctl devices --json
-npx --no-install widgetctl catalog --device "$SIMULATOR_UDID" --json
-npx --no-install widgetctl add --device "$SIMULATOR_UDID" \
+npx widgetctl devices --json
+npx widgetctl catalog --device "$SIMULATOR_UDID" --json
+npx widgetctl add --device "$SIMULATOR_UDID" \
   --app "$APP_BUNDLE_ID" --kind "$WIDGET_KIND" --size medium --json
-npx --no-install widgetctl list --device "$SIMULATOR_UDID" --json
+npx widgetctl list --device "$SIMULATOR_UDID" --json
 ```
 
 CLI operations prepare and release automatically. For repeated operations under one native driver connection, prefer the TypeScript lifecycle or the `widgetctl/playwright` fixture. Keep `prepare()` inside `try` so even setup failures release:

@@ -100,6 +100,27 @@ test("packed package ships linked docs and supports core and optional Playwright
       { cwd: directory },
     );
     assert.match(cli.stdout, /iOS Simulator widget testing helper/);
+    const globalPrefix = join(directory, "global");
+    await execute(
+      "npm",
+      [
+        "install",
+        "--global",
+        "--prefix",
+        globalPrefix,
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        join(directory, packed.filename),
+      ],
+      npmOptions,
+    );
+    const globalCli = await execute(
+      join(globalPrefix, "bin", "widgetctl"),
+      ["--help"],
+      { cwd: directory },
+    );
+    assert.match(globalCli.stdout, /iOS Simulator widget testing helper/);
     const consumer = join(directory, "consumer.ts");
     const config = join(directory, "tsconfig.json");
     await writeFile(

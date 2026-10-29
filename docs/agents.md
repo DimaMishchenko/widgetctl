@@ -2,12 +2,21 @@
 
 Widgetctl runs on a local Mac with Node 22.14+, full Xcode and an iOS Simulator. A plugin installs instructions, not the CLI or a remote simulator service. Cloud-only sessions without a local Mac executor cannot run it.
 
-## 1. Install the CLI in your project
+## 1. Install the CLI
 
 ```sh
 npm install --save-dev github:DimaMishchenko/widgetctl
-npx --no-install widgetctl --help
+npx widgetctl --help
 ```
+
+For a standalone terminal command, install globally instead:
+
+```sh
+npm install --global github:DimaMishchenko/widgetctl
+widgetctl --help
+```
+
+The global install provides the CLI. TypeScript and Playwright projects still need their own `widgetctl` dependency so imports resolve.
 
 For repeatable automation, pin the dependency to a reviewed Git commit and keep your lockfile. The npm release is still planned; use the GitHub installation above until it exists.
 

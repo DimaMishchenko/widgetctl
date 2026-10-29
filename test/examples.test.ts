@@ -14,7 +14,7 @@ for (const existing of [false, true]) {
     try {
       await writeFile(
         join(directory, "npx"),
-        `#!/usr/bin/env node\nimport('node:fs').then(fs => { const args = process.argv.slice(2); fs.appendFileSync(process.env.EXAMPLE_LOG, JSON.stringify(args)+'\\n'); console.log(JSON.stringify({ schemaVersion: 1, status: args[2] === 'add' ? 'verified' : 'configuration_applied', iconIdentifier: 'exact-icon' })); });\n`,
+        `#!/usr/bin/env node\nimport('node:fs').then(fs => { const args = process.argv.slice(2); fs.appendFileSync(process.env.EXAMPLE_LOG, JSON.stringify(args)+'\\n'); console.log(JSON.stringify({ schemaVersion: 1, status: args[1] === 'add' ? 'verified' : 'configuration_applied', iconIdentifier: 'exact-icon' })); });\n`,
         { mode: 0o700 },
       );
       await execute("bash", [script], {
@@ -35,12 +35,12 @@ for (const existing of [false, true]) {
         .split("\n")
         .map((line) => JSON.parse(line) as string[]);
       assert.deepEqual(
-        calls.map((args) => args[2]),
+        calls.map((args) => args[1]),
         existing ? ["export", "configure"] : ["add", "export", "configure"],
       );
       for (const args of calls) {
         assert.ok(args.includes("--json"));
-        if (args[2] !== "add")
+        if (args[1] !== "add")
           assert.equal(
             args[args.indexOf("--widget") + 1],
             existing ? "existing-icon" : "exact-icon",

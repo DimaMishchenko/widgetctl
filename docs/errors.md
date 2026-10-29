@@ -3,9 +3,9 @@
 Start with a read-only check:
 
 ```sh
-npx --no-install widgetctl doctor
+npx widgetctl doctor
 export SIMULATOR_UDID='YOUR_OWNED_BOOTED_SIMULATOR_UUID'
-npx --no-install widgetctl doctor --device "$SIMULATOR_UDID" --json
+npx widgetctl doctor --device "$SIMULATOR_UDID" --json
 ```
 
 Replace the UUID placeholder before running the device-specific command. Doctor checks macOS, full Xcode, the simulator SDK/compiler, available runtimes and devices. With an exact device it checks boot state, whether the application registry can be read, and existing helper metadata. It never boots, injects, restarts, repairs, acquires a session lock or deletes files. Its suggested commands are guidance for you to review.

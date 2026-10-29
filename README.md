@@ -6,34 +6,59 @@
 
 Pick an app, widget and size in your terminal. Edit its settings, reproduce a test setup, or automate it from TypeScript and Playwright.
 
+- 🎯 Pick installed apps, widgets and sizes in the terminal
+- ⚙️ Edit typed widget settings before saving
+- 🤖 Automate with explicit arguments and JSON output
+- 🧪 Use TypeScript and Playwright fixtures
+- 💾 Export and restore exact saved configuration
+
 [![Tests](https://github.com/DimaMishchenko/widgetctl/actions/workflows/test.yml/badge.svg)](https://github.com/DimaMishchenko/widgetctl/actions/workflows/test.yml) [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Install
 
 Requires **macOS, Node 22.14+ and full Xcode**. Install your app on a simulator and open it once so its widgets can register.
 
-Until the first npm release, install from GitHub:
+Until the first npm release, install from GitHub in your project:
 
 ```sh
 npm install --save-dev github:DimaMishchenko/widgetctl
 ```
 
+Or install globally and run it anywhere:
+
+```sh
+npm install --global github:DimaMishchenko/widgetctl
+widgetctl
+```
+
 Pin `github:DimaMishchenko/widgetctl#COMMIT_SHA` in automated tests. [Release and distribution plan →](docs/distribution.md)
+
+## Agent skill and plugins
+
+The short [widgetctl skill](skills/widgetctl/SKILL.md) teaches agents when to use the tool, JSON discovery, safe configuration edits and simulator ownership.
+
+Add this repository as a Codex marketplace:
+
+```sh
+codex plugin marketplace add DimaMishchenko/widgetctl
+```
+
+Then install **widgetctl** from that marketplace in the desktop Plugins directory. The plugin supplies instructions; install the CLI separately, either in your project or globally using the commands above. [Codex, Claude Code and skill-only setup →](docs/agents.md)
 
 ## CLI
 
 ```sh
-npx --no-install widgetctl
+npx widgetctl
 ```
 
-Choose your simulator, then **Add widget** or **Edit widget**. The pickers show installed apps, widget names and supported sizes. Settings stay in a draft until you choose **Save changes**. **More** holds details, import/export and diagnostics.
+Use `npx widgetctl` for a project install, or `widgetctl` for a global install. Choose your simulator, then **Add widget** or **Edit widget**. The pickers show installed apps, widget names and supported sizes. Settings stay in a draft until you choose **Save changes**. **More** holds details, import/export and diagnostics.
 
 For scripts and agents, use explicit arguments and `--json`:
 
 ```sh
-npx --no-install widgetctl devices --json
-npx --no-install widgetctl catalog --device "$SIMULATOR_UDID" --json
-npx --no-install widgetctl add --device "$SIMULATOR_UDID" \
+npx widgetctl devices --json
+npx widgetctl catalog --device "$SIMULATOR_UDID" --json
+npx widgetctl add --device "$SIMULATOR_UDID" \
   --app com.example.weather --kind Forecast --size medium --json
 ```
 
@@ -64,7 +89,13 @@ try {
 
 ## Playwright
 
-Install the optional test runner with `npm install --save-dev @playwright/test`. The fixture prepares and releases widgetctl for you.
+Install both packages in your test project:
+
+```sh
+npm install --save-dev github:DimaMishchenko/widgetctl @playwright/test
+```
+
+`widgetctl/playwright` is an import subpath exported by `widgetctl`, not a separate npm dependency. The fixture prepares and releases widgetctl for you.
 
 ```ts
 import { test, expect } from "widgetctl/playwright";
@@ -82,18 +113,6 @@ test("forecast widget is configured", async ({ widgets }) => {
 ```
 
 Set `workers: 1` and `use.widgetctlOptions.udid` in your [Playwright config](examples/playwright/playwright.config.ts). This checks saved configuration; use a native UI driver to assert rendered content. A browser `page` cannot control the Home Screen.
-
-## Agent skill and plugins
-
-The short [widgetctl skill](skills/widgetctl/SKILL.md) teaches agents when to use the tool, JSON discovery, safe configuration edits and simulator ownership.
-
-Add this repository as a Codex marketplace:
-
-```sh
-codex plugin marketplace add DimaMishchenko/widgetctl
-```
-
-Then install **widgetctl** from that marketplace in the desktop Plugins directory. The plugin supplies instructions; install the CLI in your project separately using the command above. [Codex, Claude Code and skill-only setup →](docs/agents.md)
 
 ## Support
 

@@ -48,14 +48,14 @@ export WIDGET_VALUE_JSON='COMPLETE_JSON_VALUE_FOR_THAT_PARAMETER'
 npx tsx examples/widgetctl/configuration.ts
 ```
 
-The value must be valid JSON with your widget's actual schema. Copy and edit the existing complete value, preserving nested entity metadata. The example refuses to introduce an absent key. `updateConfiguration` edits only the parameters dictionary while preserving the canonical intent envelope. The changed value remains applied. Interactive users can run `npx --no-install widgetctl edit --device "$SIMULATOR_UDID" --widget "$WIDGET_ICON"` to stage typed changes and review a diff before saving. Unsupported fields stay read only; unavailable choice discovery has an explicit JSON fallback. Entity query support depends on the installed app and runtime. Omit both variables for an unchanged round trip.
+The value must be valid JSON with your widget's actual schema. Copy and edit the existing complete value, preserving nested entity metadata. The example refuses to introduce an absent key. `updateConfiguration` edits only the parameters dictionary while preserving the canonical intent envelope. The changed value remains applied. Interactive users can run `npx widgetctl edit --device "$SIMULATOR_UDID" --widget "$WIDGET_ICON"` to stage typed changes and review a diff before saving. Unsupported fields stay read only; unavailable choice discovery has an explicit JSON fallback. Entity query support depends on the installed app and runtime. Omit both variables for an unchanged round trip.
 
 ## Playwright
 
-Install the optional runner and use the included configuration:
+`widgetctl/playwright` is included in `widgetctl`; it is not a separate npm package. Install the runner alongside widgetctl, then use the included configuration:
 
 ```sh
-npm install --save-dev @playwright/test
+npm install --save-dev github:DimaMishchenko/widgetctl @playwright/test
 npx playwright test --config examples/widgetctl/playwright/playwright.config.ts
 ```
 

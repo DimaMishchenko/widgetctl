@@ -12,9 +12,9 @@ if [[ -z "$icon" ]]; then
   : "${WIDGET_SIZE:?Set a catalog-supported size}"
   target=(--extension "$WIDGET_EXTENSION" --kind "$WIDGET_KIND" --size "$WIDGET_SIZE")
   if [[ -n "${WIDGET_CONTAINER:-}" ]]; then target+=(--app "$WIDGET_CONTAINER"); fi
-  added="$(npx --no-install widgetctl add "${device[@]}" "${target[@]}")"
+  added="$(npx widgetctl add "${device[@]}" "${target[@]}")"
   printf '%s\n' "$added"
   icon="$(node -e 'const result = JSON.parse(process.argv[1]); if (typeof result.iconIdentifier !== "string" || !result.iconIdentifier) process.exit(1); process.stdout.write(result.iconIdentifier)' "$added")"
 fi
-npx --no-install widgetctl export "${device[@]}" --widget "$icon" --file "$CONFIGURATION_FILE"
-npx --no-install widgetctl configure "${device[@]}" --widget "$icon" --file "$CONFIGURATION_FILE"
+npx widgetctl export "${device[@]}" --widget "$icon" --file "$CONFIGURATION_FILE"
+npx widgetctl configure "${device[@]}" --widget "$icon" --file "$CONFIGURATION_FILE"
