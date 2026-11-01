@@ -280,6 +280,17 @@ test("tracked plugin runtime matches a fresh deterministic build including licen
   const directory = await mkdtemp(join(tmpdir(), "widgetctl-plugin-build-"));
   try {
     const expected = await pluginRuntime();
+    const licensePaths = [...expected.keys()].filter((name) =>
+      name.startsWith("licenses/"),
+    );
+    assert.ok(!licensePaths.some((name) => name.endsWith("/package.json")));
+    assert.ok(
+      Buffer.from(
+        expected.get("licenses/plist@5.0.0/package-metadata.json")!,
+      ).equals(
+        await readFile(new URL("node_modules/plist/package.json", root)),
+      ),
+    );
     assert.ok(
       [...expected.keys()].some(
         (name) => name.includes("bplist-parser") && name.endsWith("LICENSE"),
