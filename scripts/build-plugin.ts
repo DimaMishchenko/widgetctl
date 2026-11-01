@@ -93,7 +93,7 @@ export async function pluginRuntime(): Promise<Map<string, Uint8Array>> {
   )) {
     const prefix = `licenses/${identity.replaceAll("/", "__")}`;
     files.set(
-      `${prefix}/package.json`,
+      `${prefix}/package-metadata.json`,
       await readFile(join(dependency.path, "package.json")),
     );
     const notices = (await readdir(dependency.path)).filter((name) =>

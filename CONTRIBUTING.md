@@ -21,6 +21,8 @@ Host tests cover validation, protocol errors, locking, lifecycle, CLI/MCP and pa
 
 After CLI, MCP, native source, dependency or version changes, run `npm run build:plugin` and include the generated resources under `skills/widgetctl`. Do not edit generated runtime files directly. `npm test` and `npm run pack:plugin` reject stale bundles.
 
+Bundled license directories retain upstream manifests verbatim as `package-metadata.json`. These are attribution records, not installable packages; the filename prevents dependency scanners from treating upstream development dependencies as widgetctl dependencies.
+
 ## Native verification
 
 Build and install the [fixture apps](https://github.com/DimaMishchenko/widgetctl/tree/main/test/fixtures/apps) on an explicitly owned, booted simulator. Launch each app once to register its widgets. For a quick smoke test:
