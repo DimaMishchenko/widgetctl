@@ -64,7 +64,7 @@
     "@inquirer/search": "^4.3.6",
     "@inquirer/select": "^5.2.8",
     "@modelcontextprotocol/server": "^2.4.0",
-    "bplist-parser": "^0.5.0",
+    "bplist-parser": "^0.6.0",
     "plist": "^5.0.0",
     "zod": "^4.6.7"
   },
